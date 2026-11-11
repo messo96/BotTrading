@@ -5,6 +5,7 @@ import pytz
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode, ChatAction
 from telegram.request import HTTPXRequest
+from telegram.error import NetworkError, TimedOut
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -373,9 +374,19 @@ Destinatario automatico: <code>{TELEGRAM_CHAT_ID if TELEGRAM_CHAT_ID else 'Non c
 async def callback_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Intercetta e gestisce i click sui pulsanti della tastiera inline."""
     query = update.callback_query
-    await query.answer()
+    if not query:
+        return
+
+    # Notifica a Telegram la ricezione del click (best-effort, non deve bloccare in caso di timeout)
+    try:
+        await query.answer()
+    except (NetworkError, TimedOut) as net_err:
+        logger.warning(f"Timeout o disconnessione durante query.answer (proseguo): {net_err}")
+    except Exception as e:
+        logger.warning(f"Errore query.answer (ignorabile): {e}")
+
     data = query.data
-    chat_id = query.message.chat_id
+    chat_id = query.message.chat_id if query.message else update.effective_chat.id
 
     if data == "menu_home":
         await query.message.reply_text(
@@ -455,21 +466,31 @@ async def scheduled_weekend_crypto_briefing(context: ContextTypes.DEFAULT_TYPE) 
     except Exception as e:
         logger.error(f"Errore nel weekend crypto briefing: {e}")
 
+async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Intercetta e gestisce errori di rete o timeout globalmente per evitare crash."""
+    if isinstance(context.error, (NetworkError, TimedOut)):
+        logger.warning(f"⚠️ Errore di rete temporaneo con Telegram intercettato (auto-recovery): {context.error}")
+        return
+    logger.error(f"Errore non gestito durante l'elaborazione dell'update: {context.error}", exc_info=context.error)
+
 def create_bot_application() -> Application:
     """Inizializza l'applicazione Telegram con tutti i comandi, tastiere, timeout estesi e la JobQueue."""
     if not TELEGRAM_BOT_TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN non è impostato nel file .env!")
 
-    # Timeout estesi per prevenire errori TimedOut su connessioni instabili o DNS lenti
+    # Timeout estesi e pool capiente per prevenire errori TimedOut e ConnectError
     request = HTTPXRequest(
         connect_timeout=30.0,
         read_timeout=30.0,
         write_timeout=30.0,
-        pool_timeout=30.0,
-        connection_pool_size=10
+        pool_timeout=15.0,
+        connection_pool_size=128
     )
 
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).request(request).build()
+
+    # Gestore Errori Globale
+    app.add_error_handler(global_error_handler)
 
     # Registrazione Comandi
     app.add_handler(CommandHandler("start", start_command))
