@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Dict, Any, List
 import pytz
-from src.config import TIMEZONE
+from src.config import TIMEZONE, TICKER_NAMES
 
 def get_progress_bar(score: int, length: int = 10) -> str:
     """Genera una barra grafica testuale per il punteggio."""
@@ -11,16 +11,25 @@ def get_progress_bar(score: int, length: int = 10) -> str:
 
 def get_asset_badge(asset_type: str) -> str:
     """Ritorna l'icona e l'etichetta del mercato."""
+    if asset_type == "commodity":
+        return "🥇 <b>Commodity / Materia Prima</b>"
+    if asset_type == "index":
+        return "📈 <b>Indice USA / Futures</b>"
     if asset_type == "crypto":
-        return "🪙 <b>Crypto</b>"
+        return "🪙 <b>Criptovaluta</b>"
     if asset_type == "eu":
         return "🇪🇺 <b>Europa / Italia</b>"
-    return "🇺🇸 <b>USA</b>"
+    return "🇺🇸 <b>Azionario USA</b>"
+
+def get_ticker_display_name(ticker: str) -> str:
+    """Restituisce il nome descrittivo dell'asset se disponibile."""
+    return TICKER_NAMES.get(ticker, ticker)
 
 def format_single_ticker(d: Dict[str, Any]) -> str:
     """Formatta l'analisi dettagliata di un singolo titolo in HTML."""
     bar = get_progress_bar(d['score'])
     badge = get_asset_badge(d.get('asset_type', 'stock'))
+    display_title = get_ticker_display_name(d['ticker'])
     
     change_color = "🟢" if d['price_change_pct'] >= 0 else "🔴"
     change_5d_color = "🟢" if d['five_days_change'] >= 0 else "🔴"
@@ -33,7 +42,7 @@ def format_single_ticker(d: Dict[str, Any]) -> str:
 
     currency = "$" if d.get('asset_type') != "eu" else "€"
 
-    msg = f"""📊 <b>ANALISI & SWING SETUP: {d['ticker']}</b>
+    msg = f"""📊 <b>ANALISI & SWING SETUP: {display_title}</b>
 {badge} | Prezzo: <b>{currency}{d['current_price']:,.2f}</b>
 
 {change_color} Variazione 24h: <b>{d['price_change_pct']:+.2f}%</b>
@@ -71,7 +80,7 @@ def format_screening_report(title: str, results: List[Dict[str, Any]], category:
         return f"""🧭 <b>{title}</b>
 📅 {now_tz}
 
-<i>Nessun setup rialzista ad alta convinzione rilevato in questo momento per il mercato '{category}'. Tutti i titoli monitorati sono in fase neutrale o attendista.</i>
+<i>Nessun setup rialzista ad alta convinzione rilevato in questo momento per il comparto '{category}'. I titoli monitorati sono in fase neutrale o attendista.</i>
 """
 
     items_text = []
@@ -80,8 +89,9 @@ def format_screening_report(title: str, results: List[Dict[str, Any]], category:
         currency = "$" if r.get('asset_type') != "eu" else "€"
         
         main_signal = r['signals'][0] if r['signals'] else "Trend neutrale"
+        name = get_ticker_display_name(r['ticker'])
         
-        item = f"""<b>#{idx} | {r['ticker']}</b> ({r['verdict_icon']} Score: {r['score']}/100 [{bar}])
+        item = f"""<b>#{idx} | {name}</b> ({r['verdict_icon']} Score: {r['score']}/100 [{bar}])
 • Prezzo: <b>{currency}{r['current_price']:,.2f}</b> ({r['price_change_pct']:+.2f}%)
 • Motivo: {main_signal}
 • Setup: SL: <code>{currency}{r['stop_loss']:,.2f}</code> | TP: <code>{currency}{r['take_profit_2']:,.2f}</code> (R:R 1:{r['risk_reward_ratio']})
@@ -92,11 +102,11 @@ def format_screening_report(title: str, results: List[Dict[str, Any]], category:
 
     msg = f"""🧭 <b>{title}</b>
 📅 <i>{now_tz} (Fuso {TIMEZONE})</i>
-🔍 Mercato: <b>{category.upper()}</b> | Setup migliori trovati: <b>{len(results)}</b>
+🔍 Comparto: <b>{category.upper()}</b> | Setup migliori trovati: <b>{len(results)}</b>
 
 {body}
 
-💡 <i>Usa <code>/analizza TICKER</code> per la scheda tecnica approfondita di ciascun asset.</i>
+💡 <i>Usa <code>/analizza TICKER</code> per la scheda tecnica e il grafico dettagliato.</i>
 ⚠️ <i>Promemoria: Questo bot agisce come broker-assistant consultivo. La responsabilità dell'investimento è al 100% tua.</i>
 """
     return msg
@@ -105,30 +115,33 @@ def format_help_message() -> str:
     """Messaggio di aiuto con tutti i comandi disponibili."""
     return """🤖 <b>BROKER ASSISTANT BOT - GUIDA COMANDI</b>
 
-Il bot monitora costantemente le oscillazioni di mercato, individuando setup ad alto rendimento/basso rischio (Swing Trading) su Azioni USA, Europa/Italia e Crypto.
+Il bot monitora costantemente le oscillazioni di mercato, individuando setup ad alto rendimento/basso rischio su <b>Commodities, Indici USA, Azionario ed Crypto</b>.
 
-<b>Comandi Principali:</b>
-• <code>/scan</code> : Scansione istantanea dei mercati e classifica delle migliori opportunità.
-• <code>/scan usa</code> : Scansione esclusiva del mercato azionario USA (S&P 500 / Nasdaq).
-• <code>/scan eu</code> : Scansione esclusiva di Piazza Affari (FTSE MIB) e campioni europei.
-• <code>/scan crypto</code> : Scansione delle principali criptovalute.
-• <code>/analizza TICKER</code> : Analisi tecnica dettagliata (es. <code>/analizza NVDA</code>, <code>/analizza ENI.MI</code>, <code>/analizza BTC-USD</code>).
-• <code>/top</code> : Mostra i 3 migliori titoli con il punteggio più alto in assoluto.
+<b>Comandi di Scansione Mercati:</b>
+• <code>/scan</code> : Scansione globale di tutti i mercati (Top opportunità).
+• <code>/scan commodities</code> : Scansione Oro (XAUUSD), Petrolio (Crude WTI/Brent), Argento, Gas.
+• <code>/scan indici</code> : Scansione Tech 100 (Nasdaq), US 500 (S&P), US 30 (Dow Jones).
+• <code>/scan usa</code> : Scansione Azionario USA (S&P 500 / Nasdaq).
+• <code>/scan eu</code> : Scansione Piazza Affari (FTSE MIB) e leader europei.
+• <code>/scan crypto</code> : Scansione principali criptovalute.
+• <code>/top</code> : I 3 migliori setup ad alto punteggio in assoluto.
 
-<b>Gestione Watchlist Personale:</b>
-• <code>/watchlist</code> : Mostra i titoli nella tua lista preferiti.
-• <code>/watch add TICKER</code> : Aggiunge un titolo alla lista (es. <code>/watch add TSLA</code>).
-• <code>/watch del TICKER</code> : Rimuove un titolo dalla lista.
-• <code>/scan watchlist</code> : Esegue lo screening solo sui tuoi titoli preferiti.
+<b>Analisi Rapida & Grafico (con supporto alias):</b>
+• <code>/analizza XAUUSD</code> oppure <code>/analizza GOLD</code> : Analisi completa Oro.
+• <code>/analizza CRUDE</code> oppure <code>/analizza OIL</code> : Analisi Petrolio WTI.
+• <code>/analizza TECH100</code> oppure <code>/analizza NASDAQ</code> : Analisi Nasdaq 100 Futures.
+• <code>/analizza SP500</code> : Analisi S&P 500 Futures.
+• <code>/analizza NVDA</code>, <code>/analizza AAPL</code>, <code>/analizza ENI.MI</code>, <code>/analizza BTC-USD</code>.
 
-<b>Briefing Automatici Programmati:</b>
-• <b>Mattina (08:30 CET):</b> Apertura Europa / FTSE MIB e chiusura candela 24h Crypto.
-• <b>Pomeriggio (15:00 CET):</b> Pre-Market Wall Street prima dell'apertura delle 15:30.
+<b>Gestione Watchlist:</b>
+• <code>/watchlist</code> : Mostra i tuoi preferiti.
+• <code>/watch add TICKER</code> : Aggiunge un asset (es. <code>/watch add XAUUSD</code>).
+• <code>/watch del TICKER</code> : Rimuove un asset.
+• <code>/scan watchlist</code> : Scansiona solo la tua lista.
 
-<b>Altro:</b>
-• <code>/chatid</code> : Mostra il tuo Telegram Chat ID (necessario per configurare il file .env).
-• <code>/help</code> : Mostra questo messaggio di aiuto.
+<b>Briefing Automatici:</b>
+• <b>Mattina (08:30 CET):</b> Apertura Europa / FTSE MIB + Commodities + Crypto.
+• <b>Pomeriggio (15:00 CET):</b> Pre-Market Wall Street + Tech100 + US500.
 
-⚠️ <i>Ricorda: Il bot non esegue ordini al tuo posto e non gestisce fondi. La decisione di trading spetta sempre a te al 100%.</i>
+⚠️ <i>Ricorda: Il bot è consultivo, nessun ordine automatico. La decisione finale spetta sempre a te al 100%.</i>
 """
-

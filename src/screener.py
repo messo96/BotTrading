@@ -2,24 +2,41 @@ import logging
 from typing import List, Dict, Any, Optional
 import pandas as pd
 import yfinance as yf
-from src.config import ALL_TICKERS, USA_TICKERS, EU_TICKERS, CRYPTO_TICKERS
+from src.config import (
+    ALL_TICKERS,
+    USA_TICKERS,
+    EU_TICKERS,
+    CRYPTO_TICKERS,
+    COMMODITIES_TICKERS,
+    INDICES_TICKERS,
+    TICKER_ALIASES
+)
 from src.watchlist import load_watchlist
 from src.analyzer import analyze_dataframe
 
 logger = logging.getLogger(__name__)
 
+def resolve_ticker(raw_ticker: str) -> str:
+    """Risolve alias comuni (es. XAUUSD -> GC=F, CRUDE -> CL=F, TECH100 -> NQ=F)."""
+    cleaned = raw_ticker.upper().strip().replace("/", "")
+    return TICKER_ALIASES.get(cleaned, cleaned)
+
 def detect_asset_type(ticker: str) -> str:
     """Riconosce la tipologia di asset dal simbolo."""
     ticker_upper = ticker.upper()
+    if ticker_upper in COMMODITIES_TICKERS or ticker_upper in ["GC=F", "CL=F", "BZ=F", "SI=F", "NG=F", "HG=F"]:
+        return "commodity"
+    if ticker_upper in INDICES_TICKERS or ticker_upper in ["NQ=F", "ES=F", "YM=F", "RTY=F"]:
+        return "index"
     if ticker_upper.endswith("-USD") or ticker_upper.endswith("-EUR"):
         return "crypto"
     if any(ticker_upper.endswith(ext) for ext in [".MI", ".AS", ".DE", ".PA", ".MC", ".L"]):
         return "eu"
     return "usa"
 
-def fetch_ticker_data_and_analysis(ticker: str):
+def fetch_ticker_data_and_analysis(raw_ticker: str):
     """Scarica lo storico e restituisce la tupla (df, analysis)."""
-    ticker = ticker.upper().strip()
+    ticker = resolve_ticker(raw_ticker)
     try:
         t = yf.Ticker(ticker)
         df = t.history(period="1y")
@@ -32,9 +49,9 @@ def fetch_ticker_data_and_analysis(ticker: str):
         logger.error(f"Errore durante l'analisi del ticker {ticker}: {e}")
         return None, None
 
-def analyze_single_ticker(ticker: str) -> Optional[Dict[str, Any]]:
+def analyze_single_ticker(raw_ticker: str) -> Optional[Dict[str, Any]]:
     """Scarica lo storico ed esegue l'analisi completa su un singolo ticker."""
-    _, analysis = fetch_ticker_data_and_analysis(ticker)
+    _, analysis = fetch_ticker_data_and_analysis(raw_ticker)
     return analysis
 
 def scan_tickers_list(tickers: List[str]) -> List[Dict[str, Any]]:
@@ -42,12 +59,12 @@ def scan_tickers_list(tickers: List[str]) -> List[Dict[str, Any]]:
     if not tickers:
         return []
     
-    unique_tickers = list(dict.fromkeys([t.upper().strip() for t in tickers]))
+    resolved_list = [resolve_ticker(t) for t in tickers]
+    unique_tickers = list(dict.fromkeys(resolved_list))
     results = []
 
     try:
         data = yf.download(unique_tickers, period="1y", group_by="ticker", progress=False, threads=True)
-        
         is_multi = len(unique_tickers) > 1 and isinstance(data.columns, pd.MultiIndex)
         
         for t in unique_tickers:
@@ -73,24 +90,26 @@ def scan_tickers_list(tickers: List[str]) -> List[Dict[str, Any]]:
 
     except Exception as batch_err:
         logger.error(f"Errore nel download batch: {batch_err}")
-        # Fallback a download sequenziale per i primi 10
         for t in unique_tickers[:10]:
             res = analyze_single_ticker(t)
             if res:
                 results.append(res)
 
-    # Ordina i risultati dal punteggio più alto a quello più basso
     results.sort(key=lambda x: x["score"], reverse=True)
     return results
 
 def run_market_screener(category: str = "all", top_n: int = 5) -> List[Dict[str, Any]]:
     """
-    Esegue lo screening del mercato selezionato ('all', 'usa', 'eu', 'crypto', 'watchlist').
-    Ritorna la top N delle migliori opportunità con il punteggio più alto.
+    Esegue lo screening del mercato selezionato:
+    'commodities', 'indici', 'usa', 'eu', 'crypto', 'watchlist', 'all'.
     """
     category = category.lower().strip()
     
-    if category == "watchlist":
+    if category in ["commodities", "commodity", "oro", "materieprime"]:
+        tickers = COMMODITIES_TICKERS
+    elif category in ["indici", "indices", "futures"]:
+        tickers = INDICES_TICKERS
+    elif category == "watchlist":
         tickers = load_watchlist()
     elif category == "usa":
         tickers = USA_TICKERS
@@ -99,11 +118,10 @@ def run_market_screener(category: str = "all", top_n: int = 5) -> List[Dict[str,
     elif category == "crypto":
         tickers = CRYPTO_TICKERS
     elif category == "all":
-        # Seleziona un mix bilanciato dei vari mercati
-        tickers = USA_TICKERS + EU_TICKERS + CRYPTO_TICKERS
+        # Mix completo: Indici + Commodities + Top USA + Europa + Crypto
+        tickers = INDICES_TICKERS + COMMODITIES_TICKERS + USA_TICKERS[:15] + EU_TICKERS[:10] + CRYPTO_TICKERS[:8]
     else:
         tickers = USA_TICKERS
 
     all_results = scan_tickers_list(tickers)
     return all_results[:top_n]
-

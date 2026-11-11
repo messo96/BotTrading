@@ -16,18 +16,21 @@ from src.config import (
     TELEGRAM_CHAT_ID,
     TIMEZONE,
     MORNING_BRIEFING_TIME,
-    AFTERNOON_BRIEFING_TIME
+    AFTERNOON_BRIEFING_TIME,
+    TICKER_NAMES
 )
 from src.screener import (
     run_market_screener,
     analyze_single_ticker,
-    fetch_ticker_data_and_analysis
+    fetch_ticker_data_and_analysis,
+    resolve_ticker
 )
 from src.watchlist import load_watchlist, add_to_watchlist, remove_from_watchlist
 from src.formatters import (
     format_single_ticker,
     format_screening_report,
-    format_help_message
+    format_help_message,
+    get_ticker_display_name
 )
 from src.chart_generator import generate_technical_chart
 
@@ -44,6 +47,10 @@ local_tz = pytz.timezone(TIMEZONE)
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
     """Tastiera interattiva per la dashboard principale."""
     keyboard = [
+        [
+            InlineKeyboardButton("🥇 Oro & Commodities", callback_data="scan_commodities"),
+            InlineKeyboardButton("📈 Tech100 & Indici", callback_data="scan_indici")
+        ],
         [
             InlineKeyboardButton("🇺🇸 Azioni USA", callback_data="scan_usa"),
             InlineKeyboardButton("🇪🇺 Europa / FTSE MIB", callback_data="scan_eu")
@@ -67,7 +74,8 @@ def get_report_keyboard(results: list) -> Optional[InlineKeyboardMarkup]:
     row = []
     for r in results[:4]:
         t = r["ticker"]
-        row.append(InlineKeyboardButton(f"📊 {t}", callback_data=f"analizza_{t}"))
+        short_name = TICKER_NAMES.get(t, t).split(" ")[0]
+        row.append(InlineKeyboardButton(f"📊 {short_name}", callback_data=f"analizza_{t}"))
         if len(row) == 2:
             keyboard.append(row)
             row = []
@@ -85,21 +93,26 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     chat_id = update.effective_chat.id
     welcome_text = f"""👋 <b>Benvenuto nel tuo Trading Broker Assistant Bot!</b>
 
-Sono il tuo assistente quantitativo personale per lo <b>Swing Trading</b> basato su oscillazioni di prezzo, momentum e volumi.
+Sono il tuo assistente quantitativo per lo <b>Swing Trading</b> basato su oscillazioni di prezzo, momentum e volumi.
 
-🔎 <b>Cosa faccio per te:</b>
-• Monitoro <b>Azionario USA, Piazza Affari / Europa e Crypto</b>.
-• Analizzo oscillatori (RSI, Medie Mobili, Volumi, Bande di Bollinger).
-• Ti fornisco setup completi di <b>Entry, Stop Loss e Take Profit</b>.
-• Genero grafici tecnici dettagliati in Dark Mode.
-• Ti invio i briefing automatici al mattino (08:30) e al pomeriggio (15:00).
+🔎 <b>Cosa monitoro per te:</b>
+• 🥇 <b>Commodities:</b> Oro (XAU/USD), Petrolio WTI (Crude), Brent, Argento, Gas.
+• 📈 <b>Indici & Futures:</b> Tech 100 (Nasdaq), US 500 (S&P), US 30 (Dow Jones).
+• 🇺🇸 <b>Azioni USA:</b> Nvidia, Apple, Tesla, Microsoft, AMD, ecc.
+• 🇪🇺 <b>Piazza Affari & Europa:</b> Eni, Intesa, Ferrari, Unicredit, ASML.
+• 🪙 <b>Crypto:</b> Bitcoin, Ethereum, Solana, ecc.
 
-⚠️ <i>Broker-Assistant consultivo: nessun ordine viene piazzato automaticamente. La decisione e la responsabilità finale sono tue al 100%.</i>
+📊 <b>Cosa ti fornisco:</b>
+• Indicatori avanzati (RSI, Medie Mobili, Bande di Bollinger, Volume Surge).
+• Grafici tecnici completi con <b>Stop Loss</b> e <b>Take Profit</b>.
+• Punteggio quantitativo (0-100) per ogni setup.
+• Briefing automatici del mattino (08:30) e pomeriggio (15:00).
+
+⚠️ <i>Broker-Assistant consultivo: nessun ordine viene piazzato in automatico. La decisione finale e la responsabilità sono tue al 100%.</i>
 
 🆔 <b>Il tuo Chat ID:</b> <code>{chat_id}</code>
-<i>(Impostalo in <code>TELEGRAM_CHAT_ID</code> nel file .env per i report automatici)</i>
 
-<b>Seleziona un'operazione dal menu qui sotto:</b>
+<b>Seleziona un comparto dal menu qui sotto:</b>
 """
     await update.message.reply_text(
         welcome_text,
@@ -125,11 +138,14 @@ async def chatid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         parse_mode=ParseMode.HTML
     )
 
-async def execute_and_send_analysis(chat_id: int, ticker: str, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def execute_and_send_analysis(chat_id: int, raw_ticker: str, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Funzione ausiliaria per eseguire e inviare l'analisi con grafico tecnico."""
+    ticker = resolve_ticker(raw_ticker)
+    display_name = get_ticker_display_name(ticker)
+
     status_msg = await context.bot.send_message(
         chat_id=chat_id,
-        text=f"🔍 <i>Scarico lo storico e genero il grafico tecnico per <b>{ticker}</b>...</i>",
+        text=f"🔍 <i>Scarico lo storico e genero il grafico tecnico per <b>{display_name}</b>...</i>",
         parse_mode=ParseMode.HTML
     )
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_PHOTO)
@@ -138,8 +154,8 @@ async def execute_and_send_analysis(chat_id: int, ticker: str, context: ContextT
         df, analysis = fetch_ticker_data_and_analysis(ticker)
         if not analysis or df is None:
             await status_msg.edit_text(
-                f"❌ Impossibile recuperare dati sufficienti per il ticker <b>{ticker}</b>.\n"
-                f"Verifica che il simbolo sia corretto su Yahoo Finance (es. per titoli italiani aggiungi '.MI').",
+                f"❌ Impossibile recuperare dati sufficienti per <b>{raw_ticker.upper()}</b> (simbolo: <code>{ticker}</code>).\n"
+                f"Verifica che il simbolo sia corretto su Yahoo Finance.",
                 parse_mode=ParseMode.HTML
             )
             return
@@ -152,7 +168,7 @@ async def execute_and_send_analysis(chat_id: int, ticker: str, context: ContextT
         except Exception:
             pass
 
-        watch_btn_text = f"➕ Aggiungi {ticker} a Watchlist"
+        watch_btn_text = f"➕ Aggiungi {raw_ticker.upper()} a Watchlist"
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton(watch_btn_text, callback_data=f"watch_add_{ticker}")],
             [InlineKeyboardButton("🔄 Nuova Scansione", callback_data="scan_all"), InlineKeyboardButton("🏠 Menu", callback_data="menu_home")]
@@ -168,7 +184,7 @@ async def execute_and_send_analysis(chat_id: int, ticker: str, context: ContextT
                     reply_markup=keyboard
                 )
             else:
-                short_caption = f"📊 <b>ANALISI & GRAFICO: {ticker}</b>\nScore: <b>{analysis['score']}/100</b> ({analysis['verdict']})"
+                short_caption = f"📊 <b>ANALISI & GRAFICO: {display_name}</b>\nScore: <b>{analysis['score']}/100</b> ({analysis['verdict']})"
                 await context.bot.send_photo(
                     chat_id=chat_id,
                     photo=chart_buf,
@@ -200,23 +216,33 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     """Comando /analizza o /grafico per analisi tecnica dettagliata con foto."""
     if not context.args:
         await update.message.reply_text(
-            "⚠️ <b>Specifica un simbolo da analizzare.</b>\n"
+            "⚠️ <b>Specifica un simbolo o alias da analizzare.</b>\n\n"
             "Esempi:\n"
+            "• <code>/analizza XAUUSD</code> (Oro / Gold)\n"
+            "• <code>/analizza CRUDE</code> (Petrolio WTI)\n"
+            "• <code>/analizza TECH100</code> (Nasdaq 100 Futures)\n"
+            "• <code>/analizza SP500</code> (S&P 500 Futures)\n"
             "• <code>/analizza NVDA</code> (Azioni USA)\n"
             "• <code>/analizza ENI.MI</code> (Piazza Affari)\n"
-            "• <code>/analizza BTC-USD</code> (Criptovalute)",
+            "• <code>/analizza BTC-USD</code> (Bitcoin)",
             parse_mode=ParseMode.HTML
         )
         return
 
-    ticker = context.args[0].upper().strip()
-    await execute_and_send_analysis(update.effective_chat.id, ticker, context)
+    raw_ticker = context.args[0].upper().strip()
+    await execute_and_send_analysis(update.effective_chat.id, raw_ticker, context)
 
 async def execute_and_send_scan(chat_id: int, category: str, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Funzione ausiliaria per eseguire la scansione e inviare il report con pulsanti interattivi."""
+    category_label = category.upper()
+    if category in ["commodities", "commodity", "oro", "materieprime"]:
+        category_label = "COMMODITIES (Oro, Petrolio, Metalli, Gas)"
+    elif category in ["indici", "indices", "futures"]:
+        category_label = "INDICI & FUTURES (Tech 100, US 500, US 30)"
+
     status_msg = await context.bot.send_message(
         chat_id=chat_id,
-        text=f"⏳ <i>Scansione in corso per il comparto '<b>{category.upper()}</b>'... Controllo oscillazioni, RSI, volumi e medie...</i>",
+        text=f"⏳ <i>Scansione in corso per <b>{category_label}</b>... Controllo oscillazioni, RSI, volumi e medie...</i>",
         parse_mode=ParseMode.HTML
     )
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
@@ -226,7 +252,7 @@ async def execute_and_send_scan(chat_id: int, category: str, context: ContextTyp
         cat_query = "all" if category == "top" else category
         results = run_market_screener(category=cat_query, top_n=top_n)
 
-        title = f"REPORT SCANSIONE MERCATO ({category.upper()})" if category != "top" else "TOP 3 OPPORTUNITÀ SWING DEL MOMENTO"
+        title = f"REPORT SCANSIONE: {category_label}" if category != "top" else "TOP 3 OPPORTUNITÀ SWING DEL MOMENTO"
         report_text = format_screening_report(title, results, category=cat_query)
         kb = get_report_keyboard(results)
 
@@ -244,7 +270,7 @@ async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     category = "all"
     if args and len(args) > 0:
         arg_cat = args[0].lower()
-        if arg_cat in ["usa", "eu", "crypto", "watchlist", "all"]:
+        if arg_cat in ["usa", "eu", "crypto", "commodities", "commodity", "oro", "indici", "indices", "futures", "watchlist", "all"]:
             category = arg_cat
 
     await execute_and_send_scan(update.effective_chat.id, category, context)
@@ -264,13 +290,18 @@ async def watchlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         return
 
-    tickers_list = ", ".join([f"<code>{t}</code>" for t in tickers])
+    items_list = []
+    for t in tickers:
+        name = get_ticker_display_name(t)
+        items_list.append(f"• <b>{name}</b> (<code>{t}</code>)")
+    tickers_text = "\n".join(items_list)
+
     msg = f"""📋 <b>I TUOI TITOLI PREFERITI (WATCHLIST):</b>
 
-{tickers_list}
+{tickers_text}
 
-Per scansionare solo questi titoli digita: <code>/scan watchlist</code>
-Per aggiungere: <code>/watch add TICKER</code>
+Per scansionare solo questi titoli: <code>/scan watchlist</code>
+Per aggiungere: <code>/watch add XAUUSD</code> (supporta anche alias!)
 Per rimuovere: <code>/watch del TICKER</code>
 """
     kb = InlineKeyboardMarkup([
@@ -285,28 +316,32 @@ async def watch_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if not args or len(args) < 2:
         await update.message.reply_text(
             "ℹ️ <b>Uso del comando /watch:</b>\n"
-            "• <code>/watch add NVDA</code> : aggiunge un titolo\n"
+            "• <code>/watch add XAUUSD</code> : aggiunge l'Oro\n"
+            "• <code>/watch add CRUDE</code> : aggiunge il Petrolio\n"
+            "• <code>/watch add TECH100</code> : aggiunge il Nasdaq 100\n"
             "• <code>/watch del NVDA</code> : rimuove un titolo\n"
-            "• <code>/watchlist</code> : visualizza tutti i titoli monitorati",
+            "• <code>/watchlist</code> : visualizza la lista",
             parse_mode=ParseMode.HTML
         )
         return
 
     action = args[0].lower()
-    ticker = args[1].upper().strip()
+    raw_ticker = args[1].upper().strip()
+    ticker = resolve_ticker(raw_ticker)
+    display_name = get_ticker_display_name(ticker)
 
     if action == "add":
         added = add_to_watchlist(ticker)
         if added:
-            await update.message.reply_text(f"✅ Titolo <b>{ticker}</b> aggiunto alla tua Watchlist!", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(f"✅ <b>{display_name}</b> aggiunto alla tua Watchlist!", parse_mode=ParseMode.HTML)
         else:
-            await update.message.reply_text(f"ℹ️ Il titolo <b>{ticker}</b> è già presente nella tua Watchlist.", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(f"ℹ️ <b>{display_name}</b> è già presente nella tua Watchlist.", parse_mode=ParseMode.HTML)
     elif action in ["del", "remove", "rm"]:
         removed = remove_from_watchlist(ticker)
         if removed:
-            await update.message.reply_text(f"🗑 Titolo <b>{ticker}</b> rimosso dalla tua Watchlist.", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(f"🗑 <b>{display_name}</b> rimosso dalla tua Watchlist.", parse_mode=ParseMode.HTML)
         else:
-            await update.message.reply_text(f"⚠️ Il titolo <b>{ticker}</b> non era presente nella tua Watchlist.", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(f"⚠️ <b>{display_name}</b> non era presente nella tua Watchlist.", parse_mode=ParseMode.HTML)
     else:
         await update.message.reply_text("⚠️ Azione non valida. Usa <code>add</code> oppure <code>del</code>.", parse_mode=ParseMode.HTML)
 
@@ -315,15 +350,15 @@ async def orari_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     msg = f"""⏰ <b>ORARI BRIEFING AUTOMATICI PROGRAMMATI</b>
 
 • <b>Briefing Mattutino:</b> Ore <code>{MORNING_BRIEFING_TIME}</code> (Lun-Ven)
-  <i>Focus: Piazza Affari (apertura 09:00), Europa e chiusura 24h Crypto.</i>
+  <i>Focus: Piazza Affari (09:00), Europa, Commodities (Oro, Petrolio) e Crypto.</i>
 
 • <b>Briefing Pre-Market USA:</b> Ore <code>{AFTERNOON_BRIEFING_TIME}</code> (Lun-Ven)
-  <i>Focus: Wall Street (NYSE/NASDAQ) prima dell'apertura delle 15:30.</i>
+  <i>Focus: Wall Street (15:30), Tech 100 (Nasdaq) e US 500 (S&P).</i>
 
 • <b>Briefing Weekend Crypto:</b> Sabato e Domenica ore <code>09:30</code>
 
 Fuso Orario: <code>{TIMEZONE}</code>
-Destinatario automatico: <code>{TELEGRAM_CHAT_ID if TELEGRAM_CHAT_ID else 'Non configurato (ricevibile via /chatid)'}</code>
+Destinatario automatico: <code>{TELEGRAM_CHAT_ID if TELEGRAM_CHAT_ID else 'Non configurato'}</code>
 """
     await update.message.reply_text(
         msg,
@@ -356,7 +391,8 @@ async def callback_button_handler(update: Update, context: ContextTypes.DEFAULT_
     elif data.startswith("watch_add_"):
         ticker = data.replace("watch_add_", "")
         added = add_to_watchlist(ticker)
-        resp = f"✅ <b>{ticker}</b> aggiunto alla tua Watchlist!" if added else f"ℹ️ <b>{ticker}</b> è già nella Watchlist."
+        name = get_ticker_display_name(ticker)
+        resp = f"✅ <b>{name}</b> aggiunto alla Watchlist!" if added else f"ℹ️ <b>{name}</b> è già nella Watchlist."
         await query.message.reply_text(resp, parse_mode=ParseMode.HTML)
     elif data == "info_orari":
         await orari_command(update, context)
@@ -365,7 +401,7 @@ async def callback_button_handler(update: Update, context: ContextTypes.DEFAULT_
 # FUNZIONI SCHEDULATE (JOB QUEUE)
 # -----------------------------
 async def scheduled_morning_briefing(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Briefing mattutino programmato (Europa + Crypto)."""
+    """Briefing mattutino programmato (Europa + Commodities + Crypto)."""
     target_chat = TELEGRAM_CHAT_ID or context.job.chat_id
     if not target_chat:
         logger.warning("Nessun TELEGRAM_CHAT_ID configurato per il briefing mattutino.")
@@ -373,18 +409,19 @@ async def scheduled_morning_briefing(context: ContextTypes.DEFAULT_TYPE) -> None
 
     logger.info("Esecuzione del briefing mattutino automatico...")
     try:
-        results = run_market_screener(category="eu", top_n=3)
+        eu_results = run_market_screener(category="eu", top_n=2)
+        comm_results = run_market_screener(category="commodities", top_n=2)
         crypto_results = run_market_screener(category="crypto", top_n=2)
-        combined = results + crypto_results
+        combined = comm_results + eu_results + crypto_results
         
-        report = format_screening_report("☀️ MORNING BRIEFING: APERTURA EUROPA & CRYPTO", combined, category="Europa & Crypto")
+        report = format_screening_report("☀️ MORNING BRIEFING: COMMODITIES, EUROPA & CRYPTO", combined, category="Misto Mattina")
         kb = get_report_keyboard(combined)
         await context.bot.send_message(chat_id=target_chat, text=report, parse_mode=ParseMode.HTML, reply_markup=kb)
     except Exception as e:
         logger.error(f"Errore nel morning briefing: {e}")
 
 async def scheduled_afternoon_briefing(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Briefing pomeridiano programmato (Pre-Market USA)."""
+    """Briefing pomeridiano programmato (Pre-Market USA & Indici Futures)."""
     target_chat = TELEGRAM_CHAT_ID or context.job.chat_id
     if not target_chat:
         logger.warning("Nessun TELEGRAM_CHAT_ID configurato per il briefing pomeridiano.")
@@ -392,9 +429,12 @@ async def scheduled_afternoon_briefing(context: ContextTypes.DEFAULT_TYPE) -> No
 
     logger.info("Esecuzione del briefing pre-market USA...")
     try:
-        results = run_market_screener(category="usa", top_n=5)
-        report = format_screening_report("🔔 AFTERNOON BRIEFING: PRE-MARKET WALL STREET", results, category="USA")
-        kb = get_report_keyboard(results)
+        indices_results = run_market_screener(category="indici", top_n=2)
+        usa_results = run_market_screener(category="usa", top_n=4)
+        combined = indices_results + usa_results
+
+        report = format_screening_report("🔔 AFTERNOON BRIEFING: WALL STREET & INDICI FUTURES", combined, category="USA & Indici")
+        kb = get_report_keyboard(combined)
         await context.bot.send_message(chat_id=target_chat, text=report, parse_mode=ParseMode.HTML, reply_markup=kb)
     except Exception as e:
         logger.error(f"Errore nel pre-market USA briefing: {e}")

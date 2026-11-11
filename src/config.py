@@ -20,7 +20,90 @@ DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 WATCHLIST_FILE = DATA_DIR / "watchlist.json"
 
-# Universi di Mercato di default
+# ==============================================================================
+# ALIAS TICKER (Mappatura nomi comuni -> Simboli Yahoo Finance ufficiali)
+# Permette all'utente di digitare /analizza XAUUSD, /analizza CRUDE, ecc.
+# ==============================================================================
+TICKER_ALIASES = {
+    # Oro & Metalli preziosi
+    "XAUUSD": "GC=F",
+    "GOLD": "GC=F",
+    "ORO": "GC=F",
+    "SILVER": "SI=F",
+    "ARGENTO": "SI=F",
+    "COPPER": "HG=F",
+    "RAME": "HG=F",
+
+    # Energia & Petrolio
+    "CRUDE": "CL=F",
+    "OIL": "CL=F",
+    "PETROLIO": "CL=F",
+    "WTI": "CL=F",
+    "BRENT": "BZ=F",
+    "NATGAS": "NG=F",
+    "GAS": "NG=F",
+
+    # Indici & Futures Americani
+    "TECH100": "NQ=F",
+    "NAS100": "NQ=F",
+    "NASDAQ": "NQ=F",
+    "NASDAQ100": "NQ=F",
+    "NDX": "NQ=F",
+    "SP500": "ES=F",
+    "US500": "ES=F",
+    "S&P500": "ES=F",
+    "US30": "YM=F",
+    "DOW": "YM=F",
+    "DOWJONES": "YM=F",
+    "RUSSELL": "RTY=F",
+    "US2000": "RTY=F",
+
+    # Valute Forex principali
+    "EURUSD": "EURUSD=X",
+    "GBPUSD": "GBPUSD=X",
+    "USDJPY": "USDJPY=X"
+}
+
+# Nomi descrittivi per la visualizzazione nei report e nei grafici
+TICKER_NAMES = {
+    "GC=F": "XAU/USD (Oro / Gold)",
+    "CL=F": "CRUDE OIL (Petrolio WTI)",
+    "BZ=F": "BRENT (Petrolio Brent)",
+    "SI=F": "SILVER (Argento)",
+    "NG=F": "NATURAL GAS (Gas Naturale)",
+    "HG=F": "COPPER (Rame)",
+    "NQ=F": "TECH100 (Nasdaq 100 Futures)",
+    "ES=F": "US500 (S&P 500 Futures)",
+    "YM=F": "US30 (Dow Jones 30 Futures)",
+    "RTY=F": "RUSSELL 2000 (US Small Cap)",
+    "BTC-USD": "Bitcoin (BTC)",
+    "ETH-USD": "Ethereum (ETH)",
+    "SOL-USD": "Solana (SOL)"
+}
+
+# ==============================================================================
+# UNIVERSI DI MERCATO MONITORATI
+# ==============================================================================
+
+# Commodities / Materie Prime (Futures benchmark)
+COMMODITIES_TICKERS = [
+    "GC=F",  # Oro (XAUUSD)
+    "CL=F",  # Petrolio Greggio WTI (Crude Oil)
+    "BZ=F",  # Petrolio Brent
+    "SI=F",  # Argento
+    "NG=F",  # Gas Naturale
+    "HG=F"   # Rame
+]
+
+# Indici & Futures Americani
+INDICES_TICKERS = [
+    "NQ=F",  # Tech 100 / Nasdaq 100 Futures
+    "ES=F",  # US 500 / S&P 500 Futures
+    "YM=F",  # US 30 / Dow Jones Futures
+    "RTY=F"  # Russell 2000 Futures
+]
+
+# Azionario USA (Large Cap & High Momentum)
 USA_TICKERS = [
     # Big Tech & AI
     "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "AMD", "AVGO", "ARM", "PLTR",
@@ -32,6 +115,7 @@ USA_TICKERS = [
     "COIN", "SPY", "QQQ"
 ]
 
+# Azionario Italiano ed Europeo (Piazza Affari & Euro Stoxx)
 EU_TICKERS = [
     # FTSE MIB (Piazza Affari - Italia)
     "ENI.MI", "ISP.MI", "UCG.MI", "RACE.MI", "STMMI.MI", "ENEL.MI",
@@ -40,6 +124,7 @@ EU_TICKERS = [
     "ASML.AS", "SAP.DE", "MC.PA", "TTE.PA", "AIR.PA", "SIE.DE"
 ]
 
+# Criptovalute Principali (24/7)
 CRYPTO_TICKERS = [
     "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD",
     "ADA-USD", "AVAX-USD", "DOGE-USD", "LINK-USD", "DOT-USD",
@@ -48,6 +133,8 @@ CRYPTO_TICKERS = [
 
 # Dizionario raggruppato
 ALL_TICKERS = {
+    "commodities": COMMODITIES_TICKERS,
+    "indici": INDICES_TICKERS,
     "usa": USA_TICKERS,
     "eu": EU_TICKERS,
     "crypto": CRYPTO_TICKERS
@@ -70,4 +157,3 @@ STRATEGY_SETTINGS = {
     "atr_sl_multiplier": 1.8,
     "min_risk_reward_ratio": 1.8
 }
-
