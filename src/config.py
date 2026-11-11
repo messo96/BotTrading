@@ -182,3 +182,14 @@ STRATEGY_SETTINGS = {
     "atr_sl_multiplier": 1.8,
     "min_risk_reward_ratio": 1.8
 }
+
+# Configurazione Alert Intraday sulla Watchlist
+ALERTS_CONFIG = {
+    "enabled": True,
+    "check_interval_seconds": 1800,  # Controllo automatico ogni 30 minuti
+    "cooldown_seconds": 10800,       # Minimo 3 ore tra due alert consecutivi sullo stesso ticker
+    "rsi_oversold_alert": 33,        # Alert se RSI <= 33 (Ipervenduto / Rimbalzo)
+    "rsi_overbought_alert": 72,      # Alert se RSI >= 72 (Ipercomprato / Presa profitto)
+    "volume_surge_alert": 1.8,       # Alert se volume >= 1.8x la media
+    "score_threshold_alert": 70      # Alert se Score >= 70 (Forte opportunità)
+}
