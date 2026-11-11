@@ -5,5 +5,7 @@ __pycache__/
 *.pyd
 .env
 data/watchlist.json
+bot.log
+bot.pid
 .DS_Store
 
