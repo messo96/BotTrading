@@ -47,3 +47,4 @@ def remove_from_watchlist(ticker: str) -> bool:
     tickers.remove(ticker)
     save_watchlist(tickers)
     return True
+

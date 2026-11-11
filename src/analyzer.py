@@ -185,3 +185,4 @@ def analyze_dataframe(ticker: str, df: pd.DataFrame, asset_type: str = "stock") 
         "take_profit_2_pct": round(((take_profit_2 - current_price) / current_price) * 100, 2),
         "risk_reward_ratio": risk_reward_ratio
     }
+

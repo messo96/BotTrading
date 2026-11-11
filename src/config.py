@@ -70,3 +70,4 @@ STRATEGY_SETTINGS = {
     "atr_sl_multiplier": 1.8,
     "min_risk_reward_ratio": 1.8
 }
+

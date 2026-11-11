@@ -131,3 +131,4 @@ Il bot monitora costantemente le oscillazioni di mercato, individuando setup ad 
 
 ⚠️ <i>Ricorda: Il bot non esegue ordini al tuo posto e non gestisce fondi. La decisione di trading spetta sempre a te al 100%.</i>
 """
+

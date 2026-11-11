@@ -125,3 +125,4 @@ Se desideri che il bot rimanga attivo anche quando chiudi il terminale del tuo M
   python run.py
   # Premi Ctrl+B, poi D per staccarti dalla sessione lasciando il bot attivo.
   ```
+

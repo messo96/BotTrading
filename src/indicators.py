@@ -96,3 +96,4 @@ def find_key_levels(df: pd.DataFrame, lookback: int = 30) -> dict:
         "recent_support": recent_low,
         "recent_resistance": recent_high
     }
+

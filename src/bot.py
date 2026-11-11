@@ -332,3 +332,4 @@ def create_bot_application() -> Application:
             logger.error(f"Errore configurazione Weekend Briefing: {e}")
 
     return app
+

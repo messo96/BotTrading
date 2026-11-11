@@ -100,3 +100,4 @@ def run_market_screener(category: str = "all", top_n: int = 5) -> List[Dict[str,
 
     all_results = scan_tickers_list(tickers)
     return all_results[:top_n]
+
