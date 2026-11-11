@@ -31,3 +31,4 @@ else
     echo "ℹ️ Il processo (PID: $PID) non era in esecuzione."
     rm -f "$PID_FILE"
 fi
+

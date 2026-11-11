@@ -33,3 +33,4 @@ else
     echo "❌ Errore durante l'avvio del bot. Consulta il file bot.log:"
     cat "$LOG_FILE"
 fi
+

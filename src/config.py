@@ -61,7 +61,26 @@ TICKER_ALIASES = {
     # Valute Forex principali
     "EURUSD": "EURUSD=X",
     "GBPUSD": "GBPUSD=X",
-    "USDJPY": "USDJPY=X"
+    "USDJPY": "USDJPY=X",
+
+    # Crypto (senza bisogno di digitare -USD)
+    "BTC": "BTC-USD",
+    "BITCOIN": "BTC-USD",
+    "ETH": "ETH-USD",
+    "ETHEREUM": "ETH-USD",
+    "SOL": "SOL-USD",
+    "SOLANA": "SOL-USD",
+    "XRP": "XRP-USD",
+    "RIPPLE": "XRP-USD",
+    "DOGE": "DOGE-USD",
+
+    # Macro & Volatilità
+    "DXY": "DX-Y.NYB",
+    "DOLLARO": "DX-Y.NYB",
+    "VIX": "^VIX",
+    "SOX": "SOXX",
+    "SEMICONDUCTORS": "SOXX",
+    "DAX": "^GDAXI"
 }
 
 # Nomi descrittivi per la visualizzazione nei report e nei grafici
@@ -76,9 +95,15 @@ TICKER_NAMES = {
     "ES=F": "US500 (S&P 500 Futures)",
     "YM=F": "US30 (Dow Jones 30 Futures)",
     "RTY=F": "RUSSELL 2000 (US Small Cap)",
+    "DX-Y.NYB": "DOLLAR INDEX (DXY)",
+    "^VIX": "VIX (Indice di Volatilità)",
+    "SOXX": "SOX (Semiconductor Index)",
+    "^GDAXI": "DAX 40 (Germania)",
+    "EURUSD=X": "EUR/USD (Euro/Dollaro)",
     "BTC-USD": "Bitcoin (BTC)",
     "ETH-USD": "Ethereum (ETH)",
-    "SOL-USD": "Solana (SOL)"
+    "SOL-USD": "Solana (SOL)",
+    "XRP-USD": "Ripple (XRP)"
 }
 
 # ==============================================================================

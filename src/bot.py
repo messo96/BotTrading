@@ -60,7 +60,7 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("📋 Mia Watchlist", callback_data="scan_watchlist")
         ],
         [
-            InlineKeyboardButton("🏆 Top 3 Setup", callback_data="scan_top"),
+            InlineKeyboardButton("🏆 Top 5 Setup", callback_data="scan_top"),
             InlineKeyboardButton("⏰ Orari Briefing", callback_data="info_orari")
         ]
     ]
@@ -72,7 +72,7 @@ def get_report_keyboard(results: list) -> Optional[InlineKeyboardMarkup]:
         return None
     keyboard = []
     row = []
-    for r in results[:4]:
+    for r in results[:5]:
         t = r["ticker"]
         short_name = TICKER_NAMES.get(t, t).split(" ")[0]
         row.append(InlineKeyboardButton(f"📊 {short_name}", callback_data=f"analizza_{t}"))
@@ -248,11 +248,11 @@ async def execute_and_send_scan(chat_id: int, category: str, context: ContextTyp
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
     try:
-        top_n = 5 if category != "top" else 3
+        top_n = 5
         cat_query = "all" if category == "top" else category
         results = run_market_screener(category=cat_query, top_n=top_n)
 
-        title = f"REPORT SCANSIONE: {category_label}" if category != "top" else "TOP 3 OPPORTUNITÀ SWING DEL MOMENTO"
+        title = f"REPORT SCANSIONE: {category_label}" if category != "top" else "TOP 5 OPPORTUNITÀ SWING DEL MOMENTO"
         report_text = format_screening_report(title, results, category=cat_query)
         kb = get_report_keyboard(results)
 
@@ -276,7 +276,7 @@ async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await execute_and_send_scan(update.effective_chat.id, category, context)
 
 async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Mostra i Top 3 titoli con il miglior punteggio."""
+    """Mostra i Top 5 titoli con il miglior punteggio."""
     await execute_and_send_scan(update.effective_chat.id, "top", context)
 
 async def watchlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

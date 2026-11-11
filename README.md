@@ -89,7 +89,7 @@ Il bot riconosce automaticamente gli **alias comuni dei mercati finanziari**, se
 - `/scan eu` : Scansione Piazza Affari (FTSE MIB) e campioni europei.
 - `/scan crypto` : Scansione criptovalute ad alta liquidità.
 - `/scan watchlist` : Scansione ristretta ai tuoi titoli preferiti.
-- `/top` : I migliori 3 setup in assoluto.
+- `/top` : I migliori 5 setup in assoluto.
 - `/watch add XAUUSD` : Aggiunge un asset alla tua lista preferiti (supporta gli alias).
 - `/watchlist` : Mostra la lista dei titoli monitorati.
 

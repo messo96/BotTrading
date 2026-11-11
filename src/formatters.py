@@ -124,7 +124,7 @@ Il bot monitora costantemente le oscillazioni di mercato, individuando setup ad 
 • <code>/scan usa</code> : Scansione Azionario USA (S&P 500 / Nasdaq).
 • <code>/scan eu</code> : Scansione Piazza Affari (FTSE MIB) e leader europei.
 • <code>/scan crypto</code> : Scansione principali criptovalute.
-• <code>/top</code> : I 3 migliori setup ad alto punteggio in assoluto.
+• <code>/top</code> : I 5 migliori setup ad alto punteggio in assoluto.
 
 <b>Analisi Rapida & Grafico (con supporto alias):</b>
 • <code>/analizza XAUUSD</code> oppure <code>/analizza GOLD</code> : Analisi completa Oro.
