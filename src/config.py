@@ -9,16 +9,19 @@ load_dotenv(BASE_DIR / ".env")
 # Telegram Bot Credentials
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+TELEGRAM_GROUP_ID = os.getenv("TELEGRAM_GROUP_ID", "-1004376834480").strip()
+PORTFOLIO_UPDATE_INTERVAL_HOURS = int(os.getenv("PORTFOLIO_UPDATE_INTERVAL_HOURS", "2"))
 
 # Timezone & Orari Briefing
 TIMEZONE = os.getenv("TIMEZONE", "Europe/Rome").strip()
 MORNING_BRIEFING_TIME = os.getenv("MORNING_BRIEFING_TIME", "08:30").strip()
 AFTERNOON_BRIEFING_TIME = os.getenv("AFTERNOON_BRIEFING_TIME", "15:00").strip()
 
-# Path Watchlist & Dati
+# Path Watchlist, Portfolio & Dati
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 WATCHLIST_FILE = DATA_DIR / "watchlist.json"
+PORTFOLIO_FILE = DATA_DIR / "portfolio.json"
 
 # ==============================================================================
 # ALIAS TICKER (Mappatura nomi comuni -> Simboli Yahoo Finance ufficiali)

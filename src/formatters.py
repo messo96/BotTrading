@@ -132,37 +132,84 @@ def format_screening_report(title: str, results: List[Dict[str, Any]], category:
 """
     return msg
 
+def format_portfolio_update(evaluations: List[Dict[str, Any]]) -> str:
+    """Formatta l'aggiornamento dettagliato del portafoglio per il gruppo Telegram."""
+    now_tz = datetime.now(pytz.timezone(TIMEZONE)).strftime("%d/%m/%Y alle %H:%M")
+    
+    if not evaluations:
+        return f"""💼 <b>AGGIORNAMENTO PORTAFOGLIO TRADING</b>
+📅 <i>{now_tz} (Fuso {TIMEZONE})</i>
+
+<i>Nessuna posizione aperta registrata nel portafoglio.</i>
+
+<b>Come aggiungere le tue operazioni reali:</b>
+• <code>/portfolio add NVDA SELL 170.5</code> (apre short a 170.5)
+• <code>/portfolio add XAUUSD BUY 4050</code> (apre long a 4050)
+• <code>/portfolio add TECH100 SELL 28400</code>
+"""
+
+    items_text = []
+    total_pnl = 0.0
+
+    for idx, ev in enumerate(evaluations, 1):
+        currency = "$" if ev.get("asset_type") != "eu" else "€"
+        name = get_ticker_display_name(ev["ticker"])
+        pnl = ev["pnl_pct"]
+        total_pnl += pnl
+        pnl_color = "🟢" if pnl >= 0 else "🔴"
+        dir_badge = "🟢 <b>BUY (Long)</b>" if ev["direction"] == "BUY" else "🔴 <b>SELL (Short)</b>"
+        
+        item = f"""<b>#{idx} | {name}</b> ({dir_badge})
+• Ingresso: <b>{currency}{ev['entry_price']:,.2f}</b> ➡️ Attuale: <b>{currency}{ev['current_price']:,.2f}</b>
+• Performance: {pnl_color} <b>{pnl:+.2f}%</b>
+• <b>Consiglio:</b> {ev['advice_icon']} <b>{ev['advice_title']}</b>
+• <b>Analisi:</b> <i>{ev['advice_detail']}</i>
+• Livelli attivi: SL: <code>{currency}{ev['stop_loss']:,.2f}</code> | TP: <code>{currency}{ev['take_profit']:,.2f}</code>"""
+        items_text.append(item)
+
+    avg_pnl = total_pnl / len(evaluations)
+    avg_color = "🟢" if avg_pnl >= 0 else "🔴"
+    cards = "\n\n".join(items_text)
+
+    msg = f"""💼 <b>REPORT AGGIORNAMENTO PORTAFOGLIO</b>
+📅 <i>{now_tz} (Fuso {TIMEZONE})</i>
+📊 Posizioni monitorate: <b>{len(evaluations)}</b> | P&L medio: {avg_color} <b>{avg_pnl:+.2f}%</b>
+
+{cards}
+
+💡 <i>Usa <code>/portfolio add TICKER BUY/SELL PREZZO</code> per registrare nuovi trade, o <code>/portfolio del TICKER</code> per chiuderli.</i>
+⚠️ <i>Broker-Assistant consultivo: la responsabilità operativa finale è tua al 100%.</i>
+"""
+    return msg
+
 def format_help_message() -> str:
     """Messaggio di aiuto con tutti i comandi disponibili."""
     return """🤖 <b>BROKER ASSISTANT BOT - GUIDA COMANDI</b>
 
-Il bot monitora costantemente le oscillazioni di mercato, individuando setup sia rialzisti (<b>BUY / Long</b>) che ribassisti (<b>SELL / Short</b>) su Commodities, Indici, Azioni e Crypto.
+Il bot monitora costantemente le oscillazioni di mercato (BUY e SELL) e aggiorna automaticamente il tuo **Portafoglio Posizioni Reali**.
+
+<b>Gestione Portafoglio Reale:</b>
+• <code>/portfolio</code> : Mostra tutte le posizioni aperte con P&L e consiglio (Mantenere, Spostare Stop a Pareggio, Chiudere).
+• <code>/portfolio add TICKER BUY/SELL PREZZO [SL] [TP]</code> : Registra un'operazione aperta (es. <code>/portfolio add NVDA SELL 170.5</code>).
+• <code>/portfolio del TICKER</code> : Rimuove una posizione dal portafoglio (trade chiuso).
+• <code>/aggiornagruppo</code> : Invia subito il report del portafoglio nel gruppo Telegram.
 
 <b>Comandi di Scansione Mercati:</b>
 • <code>/scan</code> : Scansione globale di tutti i mercati (Top opportunità BUY e SELL).
 • <code>/scan commodities</code> : Scansione Oro (XAUUSD), Petrolio (Crude WTI/Brent), Argento, Gas.
 • <code>/scan indici</code> : Scansione Tech 100 (Nasdaq), US 500 (S&P), US 30 (Dow Jones).
-• <code>/scan usa</code> : Scansione Azionario USA (S&P 500 / Nasdaq).
-• <code>/scan eu</code> : Scansione Piazza Affari (FTSE MIB) e leader europei.
+• <code>/scan usa</code> : Scansione Azionario USA.
+• <code>/scan eu</code> : Scansione Piazza Affari (FTSE MIB) ed Europa.
 • <code>/scan crypto</code> : Scansione principali criptovalute.
 • <code>/top</code> : I 5 migliori setup in assoluto (BUY o SELL).
 
-<b>Analisi Rapida & Grafico (con supporto alias):</b>
-• <code>/analizza XAUUSD</code> oppure <code>/analizza GOLD</code> : Analisi Oro (BUY o SELL con SL e TP).
-• <code>/analizza CRUDE</code> oppure <code>/analizza OIL</code> : Analisi Petrolio WTI.
-• <code>/analizza TECH100</code> oppure <code>/analizza NASDAQ</code> : Analisi Nasdaq 100 Futures.
-• <code>/analizza SP500</code> : Analisi S&P 500 Futures.
-• <code>/analizza NVDA</code>, <code>/analizza AAPL</code>, <code>/analizza ENI.MI</code>, <code>/analizza BTC-USD</code>.
-
-<b>Gestione Watchlist:</b>
-• <code>/watchlist</code> : Mostra i tuoi preferiti.
-• <code>/watch add TICKER</code> : Aggiunge un asset (es. <code>/watch add XAUUSD</code>).
-• <code>/watch del TICKER</code> : Rimuove un asset.
-• <code>/scan watchlist</code> : Scansiona solo la tua lista.
+<b>Analisi Rapida con Grafico Dark Mode:</b>
+• <code>/analizza XAUUSD</code> (Oro) | <code>/analizza CRUDE</code> (Petrolio) | <code>/analizza TECH100</code> (Nasdaq) | <code>/analizza NVDA</code>.
 
 <b>Briefing Automatici:</b>
-• <b>Mattina (08:30 CET):</b> Apertura Europa / FTSE MIB + Commodities + Crypto.
-• <b>Pomeriggio (15:00 CET):</b> Pre-Market Wall Street + Tech100 + US500.
+• <b>Mattina (08:30):</b> Apertura Europa + Commodities + Crypto.
+• <b>Pomeriggio (15:00):</b> Pre-Market Wall Street + Tech100.
+• <b>Aggiornamenti Portafoglio Gruppo:</b> Report periodico inviato automaticamente nel gruppo!
 
 ⚠️ <i>Ricorda: Il bot è consultivo, nessun ordine automatico. La decisione finale spetta sempre a te al 100%.</i>
 """

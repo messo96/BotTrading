@@ -16,6 +16,8 @@ from telegram.ext import (
 from src.config import (
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHAT_ID,
+    TELEGRAM_GROUP_ID,
+    PORTFOLIO_UPDATE_INTERVAL_HOURS,
     TIMEZONE,
     MORNING_BRIEFING_TIME,
     AFTERNOON_BRIEFING_TIME,
@@ -28,10 +30,18 @@ from src.screener import (
     resolve_ticker
 )
 from src.watchlist import load_watchlist, add_to_watchlist, remove_from_watchlist
+from src.portfolio import (
+    load_portfolio,
+    add_position,
+    remove_position,
+    clear_portfolio,
+    evaluate_full_portfolio
+)
 from src.formatters import (
     format_single_ticker,
     format_screening_report,
     format_help_message,
+    format_portfolio_update,
     get_ticker_display_name
 )
 from src.chart_generator import generate_technical_chart
@@ -62,7 +72,11 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("📋 Mia Watchlist", callback_data="scan_watchlist")
         ],
         [
-            InlineKeyboardButton("🏆 Top 5 Setup", callback_data="scan_top"),
+            InlineKeyboardButton("💼 Il Mio Portafoglio", callback_data="menu_portfolio"),
+            InlineKeyboardButton("🏆 Top 5 Setup", callback_data="scan_top")
+        ],
+        [
+            InlineKeyboardButton("📢 Invia Report al Gruppo", callback_data="send_group_report"),
             InlineKeyboardButton("⏰ Orari Briefing", callback_data="info_orari")
         ]
     ]
@@ -95,26 +109,24 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     chat_id = update.effective_chat.id
     welcome_text = f"""👋 <b>Benvenuto nel tuo Trading Broker Assistant Bot!</b>
 
-Sono il tuo assistente quantitativo per lo <b>Swing Trading</b> basato su oscillazioni di prezzo, momentum e volumi.
+Sono il tuo assistente per lo <b>Swing Trading</b> su oscillazioni di mercato (<b>BUY & SELL</b>) e gestione del tuo <b>Portafoglio Reale</b>.
 
 🔎 <b>Cosa monitoro per te:</b>
 • 🥇 <b>Commodities:</b> Oro (XAU/USD), Petrolio WTI (Crude), Brent, Argento, Gas.
 • 📈 <b>Indici & Futures:</b> Tech 100 (Nasdaq), US 500 (S&P), US 30 (Dow Jones).
-• 🇺🇸 <b>Azioni USA:</b> Nvidia, Apple, Tesla, Microsoft, AMD, ecc.
-• 🇪🇺 <b>Piazza Affari & Europa:</b> Eni, Intesa, Ferrari, Unicredit, ASML.
+• 🇺🇸 <b>Azioni USA:</b> Nvidia, Apple, Tesla, AMD, Palantir, ecc.
+• 🇪🇺 <b>Piazza Affari ed Europa:</b> Eni, Intesa, Ferrari, Unicredit, ASML.
 • 🪙 <b>Crypto:</b> Bitcoin, Ethereum, Solana, ecc.
 
-📊 <b>Cosa ti fornisco:</b>
-• Indicatori avanzati (RSI, Medie Mobili, Bande di Bollinger, Volume Surge).
-• Grafici tecnici completi con <b>Stop Loss</b> e <b>Take Profit</b>.
-• Punteggio quantitativo (0-100) per ogni setup.
-• Briefing automatici del mattino (08:30) e pomeriggio (15:00).
+💼 <b>Gestione Portafoglio & Gruppo Telegram:</b>
+• Monitoro i trade che hai aperto e ti consiglio se <b>Mantenere</b>, <b>Alzare lo Stop a Pareggio</b> o <b>Chiudere</b>.
+• Invio aggiornamenti periodici automatici nel tuo gruppo Telegram (ID: <code>{TELEGRAM_GROUP_ID}</code>).
 
 ⚠️ <i>Broker-Assistant consultivo: nessun ordine viene piazzato in automatico. La decisione finale e la responsabilità sono tue al 100%.</i>
 
 🆔 <b>Il tuo Chat ID:</b> <code>{chat_id}</code>
 
-<b>Seleziona un comparto dal menu qui sotto:</b>
+<b>Seleziona un'operazione dal menu qui sotto:</b>
 """
     await update.message.reply_text(
         welcome_text,
@@ -131,12 +143,13 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 async def chatid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Fornisce all'utente il suo chat ID."""
+    """Fornisce all'utente il suo chat ID o quello del gruppo in cui viene eseguito."""
     chat_id = update.effective_chat.id
+    chat_type = update.effective_chat.type
     await update.message.reply_text(
-        f"🆔 Il tuo Telegram Chat ID è: <code>{chat_id}</code>\n\n"
-        f"Inseriscilo nella variabile <code>TELEGRAM_CHAT_ID={chat_id}</code> nel file <code>.env</code> "
-        f"per ricevere i briefing automatici del mattino e del pomeriggio.",
+        f"🆔 ID di questa chat ({chat_type}): <code>{chat_id}</code>\n\n"
+        f"• Se è la tua chat privata: inseriscilo in <code>TELEGRAM_CHAT_ID={chat_id}</code>\n"
+        f"• Se è un gruppo o supergruppo: inseriscilo in <code>TELEGRAM_GROUP_ID={chat_id}</code>",
         parse_mode=ParseMode.HTML
     )
 
@@ -170,9 +183,10 @@ async def execute_and_send_analysis(chat_id: int, raw_ticker: str, context: Cont
         except Exception:
             pass
 
-        watch_btn_text = f"➕ Aggiungi {raw_ticker.upper()} a Watchlist"
+        watch_btn_text = f"➕ Aggiungi a Watchlist"
+        port_btn_text = f"💼 Registra in Portafoglio"
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton(watch_btn_text, callback_data=f"watch_add_{ticker}")],
+            [InlineKeyboardButton(watch_btn_text, callback_data=f"watch_add_{ticker}"), InlineKeyboardButton(port_btn_text, callback_data=f"port_add_prompt_{ticker}")],
             [InlineKeyboardButton("🔄 Nuova Scansione", callback_data="scan_all"), InlineKeyboardButton("🏠 Menu", callback_data="menu_home")]
         ])
 
@@ -220,7 +234,7 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text(
             "⚠️ <b>Specifica un simbolo o alias da analizzare.</b>\n\n"
             "Esempi:\n"
-            "• <code>/analizza XAUUSD</code> (Oro / Gold)\n"
+            "• <code>/analizza XAUUSD</code> (Oro)\n"
             "• <code>/analizza CRUDE</code> (Petrolio WTI)\n"
             "• <code>/analizza TECH100</code> (Nasdaq 100 Futures)\n"
             "• <code>/analizza SP500</code> (S&P 500 Futures)\n"
@@ -280,6 +294,128 @@ async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Mostra i Top 5 titoli con il miglior punteggio."""
     await execute_and_send_scan(update.effective_chat.id, "top", context)
+
+# -----------------------------
+# GESTIONE PORTAFOGLIO
+# -----------------------------
+async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Gestisce la visualizzazione, aggiunta e rimozione di posizioni reali nel portafoglio."""
+    args = context.args
+    chat_id = update.effective_chat.id
+
+    if not args:
+        status_msg = await update.message.reply_text("💼 <i>Analizzo le posizioni del tuo portafoglio in tempo reale...</i>", parse_mode=ParseMode.HTML)
+        try:
+            evaluations = evaluate_full_portfolio()
+            report = format_portfolio_update(evaluations)
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("📢 Pubblica nel Gruppo", callback_data="send_group_report")],
+                [InlineKeyboardButton("🏠 Menu Principale", callback_data="menu_home")]
+            ])
+            await status_msg.edit_text(report, parse_mode=ParseMode.HTML, reply_markup=kb)
+        except Exception as e:
+            logger.error(f"Errore portafoglio: {e}")
+            await status_msg.edit_text(f"❌ Errore durante l'analisi del portafoglio: {e}", parse_mode=ParseMode.HTML)
+        return
+
+    sub = args[0].lower()
+    if sub == "add":
+        # Sintassi: /portfolio add <TICKER> <BUY|SELL> <PREZZO> [SL] [TP]
+        if len(args) < 4:
+            await update.message.reply_text(
+                "ℹ️ <b>Come registrare un'operazione nel Portafoglio:</b>\n"
+                "<code>/portfolio add TICKER BUY/SELL PREZZO [SL] [TP]</code>\n\n"
+                "<b>Esempi:</b>\n"
+                "• <code>/portfolio add NVDA SELL 170.50</code>\n"
+                "• <code>/portfolio add XAUUSD BUY 4050 4010 4150</code>\n"
+                "• <code>/portfolio add TECH100 SELL 28400</code>\n"
+                "• <code>/portfolio add ENI.MI BUY 24.50</code>",
+                parse_mode=ParseMode.HTML
+            )
+            return
+
+        raw_ticker = args[1]
+        direction = args[2].upper()
+        try:
+            entry_price = float(args[3].replace(",", "."))
+        except ValueError:
+            await update.message.reply_text("❌ Prezzo di ingresso non valido. Inserisci un numero (es. <code>170.50</code>).", parse_mode=ParseMode.HTML)
+            return
+
+        sl = None
+        tp = None
+        if len(args) > 4:
+            try:
+                sl = float(args[4].replace(",", "."))
+            except ValueError:
+                pass
+        if len(args) > 5:
+            try:
+                tp = float(args[5].replace(",", "."))
+            except ValueError:
+                pass
+
+        pos = add_position(raw_ticker, direction, entry_price, stop_loss=sl, take_profit=tp)
+        name = get_ticker_display_name(pos["ticker"])
+        dir_badge = "🟢 BUY (Long)" if pos["direction"] == "BUY" else "🔴 SELL (Short)"
+        sl_text = f"\n• <b>Stop Loss:</b> <code>{pos['stop_loss']}</code>" if pos.get("stop_loss") else ""
+        tp_text = f"\n• <b>Take Profit:</b> <code>{pos['take_profit']}</code>" if pos.get("take_profit") else ""
+
+        msg = f"""✅ <b>Posizione aggiunta con successo al Portafoglio!</b>
+
+• <b>Asset:</b> {name} (<code>{pos['ticker']}</code>)
+• <b>Operazione:</b> {dir_badge}
+• <b>Prezzo Ingresso:</b> <b>{pos['entry_price']:,.2f}</b>{sl_text}{tp_text}
+
+Il bot ora monitorerà costantemente questo trade e invierà gli aggiornamenti sul tuo gruppo ogni tot ore e ogni volta che digiti <code>/portfolio</code>.
+"""
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+
+    elif sub in ["del", "remove", "close"]:
+        if len(args) < 2:
+            await update.message.reply_text("ℹ️ Specifica quale posizione chiudere: <code>/portfolio del TICKER</code>", parse_mode=ParseMode.HTML)
+            return
+        raw_ticker = args[1]
+        removed = remove_position(raw_ticker)
+        if removed:
+            await update.message.reply_text(f"🗑 Posizione <b>{raw_ticker.upper()}</b> chiusa e rimossa dal portafoglio.", parse_mode=ParseMode.HTML)
+        else:
+            await update.message.reply_text(f"⚠️ Posizione <b>{raw_ticker.upper()}</b> non trovata tra quelle aperte.", parse_mode=ParseMode.HTML)
+
+    elif sub == "clear":
+        clear_portfolio()
+        await update.message.reply_text("🗑 Portafoglio azzerato completamente.", parse_mode=ParseMode.HTML)
+    else:
+        await update.message.reply_text("⚠️ Azione non valida. Usa <code>/portfolio</code>, <code>/portfolio add</code> o <code>/portfolio del</code>.", parse_mode=ParseMode.HTML)
+
+async def aggiornagruppo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Pubblica immediatamente il report del portafoglio nel gruppo Telegram."""
+    chat_id = update.effective_chat.id
+    evaluations = evaluate_full_portfolio()
+    if not evaluations:
+        await update.message.reply_text(
+            "ℹ️ Il portafoglio è vuoto. Aggiungi operazioni con <code>/portfolio add TICKER BUY/SELL PREZZO</code> prima di pubblicare l'aggiornamento.",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
+    report = format_portfolio_update(evaluations)
+    target_group = TELEGRAM_GROUP_ID
+
+    try:
+        await context.bot.send_message(chat_id=target_group, text=report, parse_mode=ParseMode.HTML)
+        if str(chat_id) != str(target_group):
+            await update.message.reply_text(
+                f"✅ <b>Report Portafoglio pubblicato con successo nel gruppo!</b> (ID: <code>{target_group}</code>)",
+                parse_mode=ParseMode.HTML
+            )
+    except Exception as e:
+        logger.error(f"Errore invio a gruppo {target_group}: {e}")
+        await update.message.reply_text(
+            f"❌ Impossibile inviare al gruppo (ID: <code>{target_group}</code>): {e}\n\n"
+            f"<b>Cosa fare:</b> Assicurati di aver aggiunto il bot come membro o amministratore nel gruppo Telegram!",
+            parse_mode=ParseMode.HTML
+        )
 
 async def watchlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Mostra la watchlist dei ticker preferiti."""
@@ -359,8 +495,10 @@ async def orari_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 • <b>Briefing Weekend Crypto:</b> Sabato e Domenica ore <code>09:30</code>
 
+• <b>Aggiornamenti Portafoglio nel Gruppo:</b> Ogni <code>{PORTFOLIO_UPDATE_INTERVAL_HOURS} ore</code>
+  <i>Gruppo Destinazione: <code>{TELEGRAM_GROUP_ID}</code></i>
+
 Fuso Orario: <code>{TIMEZONE}</code>
-Destinatario automatico: <code>{TELEGRAM_CHAT_ID if TELEGRAM_CHAT_ID else 'Non configurato'}</code>
 """
     await update.message.reply_text(
         msg,
@@ -377,7 +515,7 @@ async def callback_button_handler(update: Update, context: ContextTypes.DEFAULT_
     if not query:
         return
 
-    # Notifica a Telegram la ricezione del click (best-effort, non deve bloccare in caso di timeout)
+    # Notifica a Telegram la ricezione del click (best-effort)
     try:
         await query.answer()
     except (NetworkError, TimedOut) as net_err:
@@ -394,6 +532,10 @@ async def callback_button_handler(update: Update, context: ContextTypes.DEFAULT_
             parse_mode=ParseMode.HTML,
             reply_markup=get_main_menu_keyboard()
         )
+    elif data == "menu_portfolio":
+        await portfolio_command(update, context)
+    elif data == "send_group_report":
+        await aggiornagruppo_command(update, context)
     elif data.startswith("scan_"):
         category = data.replace("scan_", "")
         await execute_and_send_scan(chat_id, category, context)
@@ -406,6 +548,14 @@ async def callback_button_handler(update: Update, context: ContextTypes.DEFAULT_
         name = get_ticker_display_name(ticker)
         resp = f"✅ <b>{name}</b> aggiunto alla Watchlist!" if added else f"ℹ️ <b>{name}</b> è già nella Watchlist."
         await query.message.reply_text(resp, parse_mode=ParseMode.HTML)
+    elif data.startswith("port_add_prompt_"):
+        ticker = data.replace("port_add_prompt_", "")
+        await query.message.reply_text(
+            f"ℹ️ Per registrare <b>{ticker}</b> nel portafoglio invia:\n"
+            f"<code>/portfolio add {ticker} BUY PREZZO</code> oppure\n"
+            f"<code>/portfolio add {ticker} SELL PREZZO</code>",
+            parse_mode=ParseMode.HTML
+        )
     elif data == "info_orari":
         await orari_command(update, context)
 
@@ -451,6 +601,24 @@ async def scheduled_afternoon_briefing(context: ContextTypes.DEFAULT_TYPE) -> No
     except Exception as e:
         logger.error(f"Errore nel pre-market USA briefing: {e}")
 
+async def scheduled_portfolio_group_update(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Invia periodicamente il monitoraggio delle posizioni del portafoglio nel gruppo Telegram."""
+    evaluations = evaluate_full_portfolio()
+    if not evaluations:
+        logger.info("Nessuna posizione aperta nel portafoglio. Nessun report da inviare al gruppo.")
+        return
+
+    target_group = TELEGRAM_GROUP_ID
+    if not target_group:
+        return
+
+    logger.info(f"Invio aggiornamento portafoglio al gruppo {target_group}...")
+    try:
+        report = format_portfolio_update(evaluations)
+        await context.bot.send_message(chat_id=target_group, text=report, parse_mode=ParseMode.HTML)
+    except Exception as e:
+        logger.error(f"Impossibile inviare aggiornamento portafoglio al gruppo {target_group}: {e}")
+
 async def scheduled_weekend_crypto_briefing(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Briefing crypto per il weekend."""
     target_chat = TELEGRAM_CHAT_ID or context.job.chat_id
@@ -478,7 +646,6 @@ def create_bot_application() -> Application:
     if not TELEGRAM_BOT_TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN non è impostato nel file .env!")
 
-    # Timeout estesi e pool capiente per prevenire errori TimedOut e ConnectError
     request = HTTPXRequest(
         connect_timeout=30.0,
         read_timeout=30.0,
@@ -502,6 +669,9 @@ def create_bot_application() -> Application:
     app.add_handler(CommandHandler("top", top_command))
     app.add_handler(CommandHandler("watchlist", watchlist_command))
     app.add_handler(CommandHandler("watch", watch_command))
+    app.add_handler(CommandHandler("portfolio", portfolio_command))
+    app.add_handler(CommandHandler("portafoglio", portfolio_command))
+    app.add_handler(CommandHandler("aggiornagruppo", aggiornagruppo_command))
     app.add_handler(CommandHandler("orari", orari_command))
 
     # Gestore Callback Query per bottoni inline
@@ -516,7 +686,7 @@ def create_bot_application() -> Application:
             job_queue.run_daily(
                 scheduled_morning_briefing,
                 time=morning_time,
-                days=(0, 1, 2, 3, 4), # Da Lunedì a Venerdì
+                days=(0, 1, 2, 3, 4),
                 name="morning_briefing"
             )
             logger.info(f"Schedulato Morning Briefing alle {morning_time} (Lun-Ven)")
@@ -529,7 +699,7 @@ def create_bot_application() -> Application:
             job_queue.run_daily(
                 scheduled_afternoon_briefing,
                 time=afternoon_time,
-                days=(0, 1, 2, 3, 4), # Da Lunedì a Venerdì
+                days=(0, 1, 2, 3, 4),
                 name="afternoon_briefing"
             )
             logger.info(f"Schedulato Afternoon Briefing alle {afternoon_time} (Lun-Ven)")
@@ -537,11 +707,24 @@ def create_bot_application() -> Application:
             logger.error(f"Errore configurazione Afternoon Briefing: {e}")
 
         try:
+            # Aggiornamento periodico del portafoglio nel gruppo ogni N ore
+            interval_secs = max(1800, PORTFOLIO_UPDATE_INTERVAL_HOURS * 3600)
+            job_queue.run_repeating(
+                scheduled_portfolio_group_update,
+                interval=interval_secs,
+                first=180, # 3 minuti dopo l'avvio
+                name="portfolio_group_updates"
+            )
+            logger.info(f"Schedulato aggiornamento periodico portafoglio ogni {PORTFOLIO_UPDATE_INTERVAL_HOURS} ore.")
+        except Exception as e:
+            logger.error(f"Errore configurazione aggiornamenti portafoglio: {e}")
+
+        try:
             weekend_time = datetime.time(hour=9, minute=30, tzinfo=local_tz)
             job_queue.run_daily(
                 scheduled_weekend_crypto_briefing,
                 time=weekend_time,
-                days=(5, 6), # Sabato e Domenica
+                days=(5, 6),
                 name="weekend_crypto_briefing"
             )
             logger.info(f"Schedulato Weekend Crypto Briefing alle {weekend_time} (Sab-Dom)")

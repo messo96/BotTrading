@@ -81,6 +81,14 @@ Il bot riconosce automaticamente gli **alias comuni dei mercati finanziari**, se
 | `/analizza NVDA`, `AAPL`, `TSLA`, `ENI.MI` | 🇺🇸 / 🇪🇺 **Azioni Singole** |
 | `/analizza BTC-USD`, `ETH-USD`, `SOL-USD` | 🪙 **Criptovalute** |
 
+### Gestione Portafoglio Reale & Aggiornamenti Gruppo:
+- `/portfolio` : Mostra tutte le posizioni aperte con P&L % in tempo reale e il consiglio algoritmico (Mantenere, Spostare Stop a Pareggio, Chiudere per cambio trend, ecc.).
+- `/portfolio add TICKER BUY/SELL PREZZO [SL] [TP]` : Registra un'operazione reale aperta (es. `/portfolio add NVDA SELL 170.50`, `/portfolio add XAUUSD BUY 4050 4010 4150`).
+- `/portfolio del TICKER` : Rimuove/chiude una posizione dal portafoglio.
+- `/portfolio clear` : Svuota tutte le posizioni aperte.
+- `/aggiornagruppo` : Pubblica manualmente il report del portafoglio nel gruppo Telegram.
+- **Aggiornamento Periodico Automatico nel Gruppo:** Il bot pubblica in automatico ogni tot ore (default ogni 2 ore) il resoconto completo dello stato di salute delle tue posizioni nel gruppo Telegram configurato (ID: `-1004376834480`).
+
 ### Comandi di Scansione Mercati:
 - `/scan` : Scansione globale e classifica dei migliori setup del momento.
 - `/scan commodities` : Scansione mirata di Oro, Petrolio WTI, Brent, Argento, Gas Naturale.
