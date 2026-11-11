@@ -11,13 +11,12 @@ from src.indicators import (
     compute_volume_metrics
 )
 from src.analyzer import analyze_dataframe
-from src.screener import analyze_single_ticker, run_market_screener
 from src.formatters import format_single_ticker, format_screening_report
 
 class TestTradingBot(unittest.TestCase):
 
     def setUp(self):
-        # Genera dati sintetici realistici (60 giorni)
+        # Genera dati sintetici realistici
         np.random.seed(42)
         dates = pd.date_range(start="2026-01-01", periods=100, freq="B")
         prices = 100 + np.cumsum(np.random.randn(100) * 1.5)
@@ -32,6 +31,18 @@ class TestTradingBot(unittest.TestCase):
             "Low": lows,
             "Close": prices,
             "Volume": volumes
+        }, index=dates)
+
+        # Dataset chiaramente ribassista (Downtrend con rottura medie e volumi in vendita)
+        bear_prices = 150 - np.linspace(0, 50, 100)
+        bear_volumes = np.full(100, 200000)
+        bear_volumes[-1] = 500000  # spike volume vendita
+        self.bear_df = pd.DataFrame({
+            "Open": bear_prices + 0.5,
+            "High": bear_prices + 1.0,
+            "Low": bear_prices - 1.0,
+            "Close": bear_prices,
+            "Volume": bear_volumes
         }, index=dates)
 
     def test_indicators(self):
@@ -59,28 +70,36 @@ class TestTradingBot(unittest.TestCase):
         vol = compute_volume_metrics(self.df)
         self.assertGreater(vol["volume_surge_ratio"], 0)
 
-    def test_analyzer(self):
+    def test_analyzer_bidirectional(self):
         analysis = analyze_dataframe("TEST", self.df, asset_type="usa")
         self.assertIsNotNone(analysis)
-        self.assertEqual(analysis["ticker"], "TEST")
+        self.assertIn(analysis["action"], ["BUY", "SELL", "NEUTRAL"])
         self.assertTrue(0 <= analysis["score"] <= 100)
-        self.assertIn("stop_loss", analysis)
-        self.assertIn("take_profit_1", analysis)
-        self.assertIn("take_profit_2", analysis)
-        self.assertLess(analysis["stop_loss"], analysis["current_price"])
-        self.assertGreater(analysis["take_profit_1"], analysis["current_price"])
-        self.assertGreater(analysis["take_profit_2"], analysis["take_profit_1"])
+
+        # Test specifico scenario ribassista (SELL)
+        bear_analysis = analyze_dataframe("BEAR_TEST", self.bear_df, asset_type="usa")
+        self.assertIsNotNone(bear_analysis)
+        self.assertIn("SELL", bear_analysis["action"])
+        # In una posizione SELL, lo stop loss è SOPRA il prezzo corrente
+        self.assertGreater(bear_analysis["stop_loss"], bear_analysis["current_price"])
+        # E il target Take Profit è SOTTO il prezzo corrente
+        self.assertLess(bear_analysis["take_profit_1"], bear_analysis["current_price"])
 
     def test_formatters(self):
         analysis = analyze_dataframe("AAPL", self.df, asset_type="usa")
         single_msg = format_single_ticker(analysis)
         self.assertIn("ANALISI & SWING SETUP", single_msg)
         self.assertIn("AAPL", single_msg)
+        self.assertIn("Direzione Consigliata:", single_msg)
 
-        report_msg = format_screening_report("TEST REPORT", [analysis], category="usa")
+        bear_analysis = analyze_dataframe("BEAR", self.bear_df, asset_type="usa")
+        bear_msg = format_single_ticker(bear_analysis)
+        self.assertIn("SELL (SHORT", bear_msg)
+
+        report_msg = format_screening_report("TEST REPORT", [analysis, bear_analysis], category="usa")
         self.assertIn("TEST REPORT", report_msg)
         self.assertIn("AAPL", report_msg)
+        self.assertIn("BEAR", report_msg)
 
 if __name__ == "__main__":
     unittest.main()
-
