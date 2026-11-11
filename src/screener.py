@@ -17,19 +17,25 @@ def detect_asset_type(ticker: str) -> str:
         return "eu"
     return "usa"
 
-def analyze_single_ticker(ticker: str) -> Optional[Dict[str, Any]]:
-    """Scarica lo storico ed esegue l'analisi completa su un singolo ticker."""
+def fetch_ticker_data_and_analysis(ticker: str):
+    """Scarica lo storico e restituisce la tupla (df, analysis)."""
     ticker = ticker.upper().strip()
     try:
         t = yf.Ticker(ticker)
         df = t.history(period="1y")
         if df.empty or len(df) < 30:
-            return None
+            return None, None
         asset_type = detect_asset_type(ticker)
-        return analyze_dataframe(ticker, df, asset_type=asset_type)
+        analysis = analyze_dataframe(ticker, df, asset_type=asset_type)
+        return df, analysis
     except Exception as e:
         logger.error(f"Errore durante l'analisi del ticker {ticker}: {e}")
-        return None
+        return None, None
+
+def analyze_single_ticker(ticker: str) -> Optional[Dict[str, Any]]:
+    """Scarica lo storico ed esegue l'analisi completa su un singolo ticker."""
+    _, analysis = fetch_ticker_data_and_analysis(ticker)
+    return analysis
 
 def scan_tickers_list(tickers: List[str]) -> List[Dict[str, Any]]:
     """Esegue la scansione in batch di una lista di ticker e restituisce i risultati ordinati per score."""
