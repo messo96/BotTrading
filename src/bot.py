@@ -4,6 +4,7 @@ from typing import Optional, List
 import pytz
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode, ChatAction
+from telegram.request import HTTPXRequest
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -455,11 +456,20 @@ async def scheduled_weekend_crypto_briefing(context: ContextTypes.DEFAULT_TYPE) 
         logger.error(f"Errore nel weekend crypto briefing: {e}")
 
 def create_bot_application() -> Application:
-    """Inizializza l'applicazione Telegram con tutti i comandi, tastiere e la JobQueue."""
+    """Inizializza l'applicazione Telegram con tutti i comandi, tastiere, timeout estesi e la JobQueue."""
     if not TELEGRAM_BOT_TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN non è impostato nel file .env!")
 
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    # Timeout estesi per prevenire errori TimedOut su connessioni instabili o DNS lenti
+    request = HTTPXRequest(
+        connect_timeout=30.0,
+        read_timeout=30.0,
+        write_timeout=30.0,
+        pool_timeout=30.0,
+        connection_pool_size=10
+    )
+
+    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).request(request).build()
 
     # Registrazione Comandi
     app.add_handler(CommandHandler("start", start_command))

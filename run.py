@@ -1,5 +1,7 @@
 import sys
+import time
 import logging
+from telegram.error import TimedOut, NetworkError
 from src.config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, MORNING_BRIEFING_TIME, AFTERNOON_BRIEFING_TIME, TIMEZONE
 from src.bot import create_bot_application
 
@@ -32,13 +34,31 @@ def main():
     print("\nIn attesa di messaggi su Telegram... (Premi CTRL+C per arrestare)")
     print("-" * 60)
 
-    try:
-        app = create_bot_application()
-        app.run_polling(drop_pending_updates=True)
-    except Exception as e:
-        logger.error(f"Errore fatale: {e}")
-        sys.exit(1)
+    retry_count = 0
+    max_retries = 5
+
+    while True:
+        try:
+            app = create_bot_application()
+            app.run_polling(drop_pending_updates=True)
+            break
+        except (TimedOut, NetworkError) as net_err:
+            retry_count += 1
+            wait_time = min(5 * retry_count, 30)
+            logger.warning(
+                f"⚠️ Connessione a Telegram interrotta o lenta ({net_err}). "
+                f"Nuovo tentativo ({retry_count}/{max_retries}) tra {wait_time}s..."
+            )
+            if retry_count >= max_retries:
+                logger.error("❌ Raggiunto il limite massimo di tentativi di riconnessione.")
+                sys.exit(1)
+            time.sleep(wait_time)
+        except KeyboardInterrupt:
+            print("\n🛑 Arresto del bot da parte dell'utente...")
+            break
+        except Exception as e:
+            logger.error(f"Errore fatale: {e}")
+            sys.exit(1)
 
 if __name__ == "__main__":
     main()
-
