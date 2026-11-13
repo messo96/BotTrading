@@ -13,14 +13,20 @@ class TestPortfolioHandlers(unittest.IsolatedAsyncioTestCase):
         self.load_portfolio = patch("src.bot.load_portfolio", return_value=[])
         self.add_position = patch("src.bot.add_position")
         self.update_entry_price = patch("src.bot.update_entry_price", return_value=True)
+        self.update_stop_loss = patch("src.bot.update_stop_loss", return_value=True)
+        self.update_take_profit = patch("src.bot.update_take_profit", return_value=True)
         self.load_archived_portfolio = patch("src.bot.load_archived_portfolio", return_value=[])
         self.mock_load_portfolio = self.load_portfolio.start()
         self.mock_add_position = self.add_position.start()
         self.mock_update_entry_price = self.update_entry_price.start()
+        self.mock_update_stop_loss = self.update_stop_loss.start()
+        self.mock_update_take_profit = self.update_take_profit.start()
         self.mock_load_archived_portfolio = self.load_archived_portfolio.start()
         self.addCleanup(self.load_portfolio.stop)
         self.addCleanup(self.add_position.stop)
         self.addCleanup(self.update_entry_price.stop)
+        self.addCleanup(self.update_stop_loss.stop)
+        self.addCleanup(self.update_take_profit.stop)
         self.addCleanup(self.load_archived_portfolio.stop)
 
     def callback_update(self, data, chat_id=None):
@@ -261,6 +267,39 @@ class TestPortfolioHandlers(unittest.IsolatedAsyncioTestCase):
         button_texts = [btn.text for row in keyboard.inline_keyboard for btn in row]
         self.assertTrue(any("NVDA" in text for text in button_texts))
         self.assertTrue(any("XAU" in text or "Oro" in text for text in button_texts))
+        self.assertTrue(any("SL" in text for text in button_texts))
+        self.assertTrue(any("TP" in text for text in button_texts))
+
+    async def test_sl_and_tp_interactive_flows_update_levels(self):
+        self.mock_load_portfolio.return_value = [{"ticker": "NVDA", "entry_price": 140.0, "direction": "BUY"}]
+
+        # Test Stop Loss flow
+        await self.begin_price_flow("port_sl_NVDA")
+        self.assertEqual(self.context.user_data["pending_portfolio"]["action"], "sl")
+        reply_sl, _ = self.price_update("135.00", reply_to_id=500)
+        await bot.portfolio_input_handler(reply_sl, self.context)
+        self.mock_update_stop_loss.assert_called_once_with("NVDA", 135.00)
+        self.assertNotIn("pending_portfolio", self.context.user_data)
+
+        # Test Take Profit flow
+        await self.begin_price_flow("port_tp_NVDA")
+        self.assertEqual(self.context.user_data["pending_portfolio"]["action"], "tp")
+        reply_tp, _ = self.price_update("160.00", reply_to_id=500)
+        await bot.portfolio_input_handler(reply_tp, self.context)
+        self.mock_update_take_profit.assert_called_once_with("NVDA", 160.00)
+        self.assertNotIn("pending_portfolio", self.context.user_data)
+
+    async def test_portfolio_sl_and_tp_text_commands(self):
+        msg = SimpleNamespace(reply_text=AsyncMock())
+        cmd_update = SimpleNamespace(message=msg, effective_chat=SimpleNamespace(id=self.chat_id))
+
+        self.context.args = ["sl", "NVDA", "135.50"]
+        await bot.portfolio_command(cmd_update, self.context)
+        self.mock_update_stop_loss.assert_called_with("NVDA", 135.50)
+
+        self.context.args = ["tp", "NVDA", "165.00"]
+        await bot.portfolio_command(cmd_update, self.context)
+        self.mock_update_take_profit.assert_called_with("NVDA", 165.00)
 
 
 if __name__ == "__main__":

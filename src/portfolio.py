@@ -100,6 +100,36 @@ def update_entry_price(raw_ticker: str, entry_price: float) -> bool:
             return True
     return False
 
+def update_stop_loss(raw_ticker: str, stop_loss: float) -> bool:
+    """Aggiorna il livello di Stop Loss di una posizione aperta."""
+    sl = float(stop_loss)
+    if not math.isfinite(sl) or sl <= 0:
+        raise ValueError("Lo Stop Loss deve essere maggiore di zero.")
+
+    ticker = resolve_ticker(raw_ticker)
+    positions = load_portfolio()
+    for position in positions:
+        if position.get("ticker") == ticker or position.get("raw_ticker") == raw_ticker.upper().strip():
+            position["stop_loss"] = sl
+            save_portfolio(positions)
+            return True
+    return False
+
+def update_take_profit(raw_ticker: str, take_profit: float) -> bool:
+    """Aggiorna il livello di Take Profit di una posizione aperta."""
+    tp = float(take_profit)
+    if not math.isfinite(tp) or tp <= 0:
+        raise ValueError("Il Take Profit deve essere maggiore di zero.")
+
+    ticker = resolve_ticker(raw_ticker)
+    positions = load_portfolio()
+    for position in positions:
+        if position.get("ticker") == ticker or position.get("raw_ticker") == raw_ticker.upper().strip():
+            position["take_profit"] = tp
+            save_portfolio(positions)
+            return True
+    return False
+
 def remove_position(raw_ticker: str) -> bool:
     """Rimuove/chiude una posizione dal portafoglio."""
     ticker = resolve_ticker(raw_ticker)

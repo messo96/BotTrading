@@ -38,6 +38,8 @@ from src.portfolio import (
     load_portfolio,
     add_position,
     update_entry_price,
+    update_stop_loss,
+    update_take_profit,
     remove_position,
     archive_position,
     load_archived_portfolio,
@@ -130,10 +132,12 @@ def get_portfolio_management_keyboard(positions: list) -> InlineKeyboardMarkup:
         short_name = TICKER_NAMES.get(ticker, raw).split(" ")[0].replace("/", "")
         keyboard.append([
             InlineKeyboardButton(f"✏️ Prezzo {short_name}", callback_data=f"port_edit_{ticker}"),
-            InlineKeyboardButton(f"🗑 Elimina {short_name}", callback_data=f"port_delete_{ticker}")
+            InlineKeyboardButton(f"🛑 SL {short_name}", callback_data=f"port_sl_{ticker}"),
+            InlineKeyboardButton(f"🎯 TP {short_name}", callback_data=f"port_tp_{ticker}")
         ])
         keyboard.append([
-            InlineKeyboardButton(f"📦 Archivia {short_name} nello Storico", callback_data=f"port_archive_{ticker}")
+            InlineKeyboardButton(f"📦 Archivia {short_name}", callback_data=f"port_archive_{ticker}"),
+            InlineKeyboardButton(f"🗑 Elimina {short_name}", callback_data=f"port_delete_{ticker}")
         ])
 
     keyboard.append([InlineKeyboardButton("📢 Pubblica nel Gruppo", callback_data="send_group_report")])
@@ -495,6 +499,52 @@ Il bot ora monitorerà costantemente questo trade e invierà gli aggiornamenti s
 """
         await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
+    elif sub in ["sl", "stoploss", "stop_loss"]:
+        if len(args) < 3:
+            await update.message.reply_text("ℹ️ Uso: <code>/portfolio sl TICKER NUOVO_STOP_LOSS</code>\nEs: <code>/portfolio sl NVDA 135.00</code>", parse_mode=ParseMode.HTML)
+            return
+        raw_ticker = args[1]
+        try:
+            val = float(args[2].replace(",", "."))
+            if not math.isfinite(val) or val <= 0:
+                raise ValueError
+        except ValueError:
+            await update.message.reply_text("❌ Valore di Stop Loss non valido. Inserisci un numero positivo.", parse_mode=ParseMode.HTML)
+            return
+        if update_stop_loss(raw_ticker, val):
+            name = get_ticker_display_name(resolve_ticker(raw_ticker))
+            await update.message.reply_text(
+                f"🛑 Stop Loss di <b>{name}</b> aggiornato a <b>{val:,.2f}</b>!\n"
+                f"<i>I consigli operativi verranno ricalcolati in base al nuovo livello.</i>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=get_portfolio_management_keyboard(load_portfolio())
+            )
+        else:
+            await update.message.reply_text(f"⚠️ Asset <b>{raw_ticker.upper()}</b> non trovato tra le posizioni aperte.", parse_mode=ParseMode.HTML)
+
+    elif sub in ["tp", "takeprofit", "take_profit"]:
+        if len(args) < 3:
+            await update.message.reply_text("ℹ️ Uso: <code>/portfolio tp TICKER NUOVO_TAKE_PROFIT</code>\nEs: <code>/portfolio tp NVDA 160.00</code>", parse_mode=ParseMode.HTML)
+            return
+        raw_ticker = args[1]
+        try:
+            val = float(args[2].replace(",", "."))
+            if not math.isfinite(val) or val <= 0:
+                raise ValueError
+        except ValueError:
+            await update.message.reply_text("❌ Valore di Take Profit non valido. Inserisci un numero positivo.", parse_mode=ParseMode.HTML)
+            return
+        if update_take_profit(raw_ticker, val):
+            name = get_ticker_display_name(resolve_ticker(raw_ticker))
+            await update.message.reply_text(
+                f"🎯 Take Profit di <b>{name}</b> aggiornato a <b>{val:,.2f}</b>!\n"
+                f"<i>I target di profitto sono stati aggiornati.</i>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=get_portfolio_management_keyboard(load_portfolio())
+            )
+        else:
+            await update.message.reply_text(f"⚠️ Asset <b>{raw_ticker.upper()}</b> non trovato tra le posizioni aperte.", parse_mode=ParseMode.HTML)
+
     elif sub in ["del", "remove", "close"]:
         if len(args) < 2:
             await update.message.reply_text("ℹ️ Specifica quale posizione chiudere: <code>/portfolio del TICKER</code>", parse_mode=ParseMode.HTML)
@@ -556,6 +606,8 @@ async def portfolio_input_handler(update: Update, context: ContextTypes.DEFAULT_
 
     ticker = pending["ticker"]
     action = pending["action"]
+    name = get_ticker_display_name(ticker)
+
     if action == "add":
         position = add_position(ticker, pending["direction"], entry_price)
         direction_label = "BUY" if position["direction"] == "BUY" else "SELL"
@@ -564,14 +616,35 @@ async def portfolio_input_handler(update: Update, context: ContextTypes.DEFAULT_
             parse_mode=ParseMode.HTML,
             reply_markup=get_portfolio_management_keyboard(load_portfolio())
         )
-    elif update_entry_price(ticker, entry_price):
-        await update.message.reply_text(
-            f"✅ Prezzo di ingresso di <b>{ticker}</b> aggiornato a <b>{entry_price:,.2f}</b>.",
-            parse_mode=ParseMode.HTML,
-            reply_markup=get_portfolio_management_keyboard(load_portfolio())
-        )
-    else:
-        await update.message.reply_text(f"⚠️ La posizione <b>{ticker}</b> non è più nel portafoglio.", parse_mode=ParseMode.HTML)
+    elif action == "edit":
+        if update_entry_price(ticker, entry_price):
+            await update.message.reply_text(
+                f"✅ Prezzo di ingresso di <b>{name}</b> aggiornato a <b>{entry_price:,.2f}</b>.",
+                parse_mode=ParseMode.HTML,
+                reply_markup=get_portfolio_management_keyboard(load_portfolio())
+            )
+        else:
+            await update.message.reply_text(f"⚠️ La posizione <b>{name}</b> non è più nel portafoglio.", parse_mode=ParseMode.HTML)
+    elif action == "sl":
+        if update_stop_loss(ticker, entry_price):
+            await update.message.reply_text(
+                f"🛑 Stop Loss di <b>{name}</b> aggiornato a <b>{entry_price:,.2f}</b>!\n"
+                f"<i>I consigli operativi verranno ricalcolati in base al nuovo livello.</i>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=get_portfolio_management_keyboard(load_portfolio())
+            )
+        else:
+            await update.message.reply_text(f"⚠️ La posizione <b>{name}</b> non è più nel portafoglio.", parse_mode=ParseMode.HTML)
+    elif action == "tp":
+        if update_take_profit(ticker, entry_price):
+            await update.message.reply_text(
+                f"🎯 Take Profit di <b>{name}</b> aggiornato a <b>{entry_price:,.2f}</b>!\n"
+                f"<i>I target di profitto sono stati aggiornati.</i>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=get_portfolio_management_keyboard(load_portfolio())
+            )
+        else:
+            await update.message.reply_text(f"⚠️ La posizione <b>{name}</b> non è più nel portafoglio.", parse_mode=ParseMode.HTML)
     context.user_data.pop("pending_portfolio", None)
 
 
@@ -719,7 +792,7 @@ async def callback_button_handler(update: Update, context: ContextTypes.DEFAULT_
     pending = context.user_data.get("pending_portfolio")
     pending_flow_callback = (
         data == "port_cancel_pending"
-        or data.startswith(("port_buy_", "port_sell_", "port_edit_"))
+        or data.startswith(("port_buy_", "port_sell_", "port_edit_", "port_sl_", "port_tp_"))
     )
     if pending and pending.get("chat_id") != chat_id:
         if pending_flow_callback:
@@ -793,6 +866,68 @@ async def callback_button_handler(update: Update, context: ContextTypes.DEFAULT_
             context,
             f"✏️ Inserisci il nuovo prezzo di ingresso per <b>{ticker}</b>{curr_price_str}.\n\n"
             f"👉 <b>Scrivi qui sotto il nuovo valore</b> (es. <code>170.50</code>):"
+        )
+    elif data.startswith("port_sl_"):
+        ticker = data.removeprefix("port_sl_")
+        current_pos = next((p for p in load_portfolio() if p.get("ticker") == ticker), None)
+        if not current_pos:
+            await query.message.reply_text(f"⚠️ <b>{ticker}</b> non è più nel portafoglio.", parse_mode=ParseMode.HTML)
+            return
+        name = get_ticker_display_name(ticker)
+        _update_pending_portfolio(context, "sl", ticker, chat_id)
+        current_sl = current_pos.get("stop_loss")
+        sl_text = f"<code>{current_sl:,.2f}</code>" if current_sl else "<i>non impostato</i>"
+        entry_p = current_pos.get("entry_price", 0)
+        direction = current_pos.get("direction", "BUY")
+        dir_badge = "🟢 BUY" if direction == "BUY" else "🔴 SELL"
+
+        hint_price = ""
+        try:
+            df, analysis = fetch_ticker_data_and_analysis(ticker)
+            if analysis and "current_price" in analysis:
+                hint_price = f"\n💵 <i>Prezzo attuale di mercato: <b>{analysis['current_price']:,.2f}</b></i>"
+        except Exception:
+            pass
+
+        await _prompt_portfolio_price(
+            query.message,
+            context,
+            f"🛑 <b>Modifica Stop Loss per {name}</b> ({dir_badge})\n"
+            f"• Prezzo di Ingresso: <b>{entry_p:,.2f}</b>{hint_price}\n"
+            f"• Stop Loss attuale: {sl_text}\n\n"
+            f"👉 <b>Scrivi qui sotto il nuovo valore di Stop Loss</b> (es. <code>{current_sl or entry_p * 0.95:,.2f}</code>):\n"
+            f"<i>(I consigli operativi verranno ricalcolati subito in base a questo livello)</i>"
+        )
+    elif data.startswith("port_tp_"):
+        ticker = data.removeprefix("port_tp_")
+        current_pos = next((p for p in load_portfolio() if p.get("ticker") == ticker), None)
+        if not current_pos:
+            await query.message.reply_text(f"⚠️ <b>{ticker}</b> non è più nel portafoglio.", parse_mode=ParseMode.HTML)
+            return
+        name = get_ticker_display_name(ticker)
+        _update_pending_portfolio(context, "tp", ticker, chat_id)
+        current_tp = current_pos.get("take_profit")
+        tp_text = f"<code>{current_tp:,.2f}</code>" if current_tp else "<i>non impostato</i>"
+        entry_p = current_pos.get("entry_price", 0)
+        direction = current_pos.get("direction", "BUY")
+        dir_badge = "🟢 BUY" if direction == "BUY" else "🔴 SELL"
+
+        hint_price = ""
+        try:
+            df, analysis = fetch_ticker_data_and_analysis(ticker)
+            if analysis and "current_price" in analysis:
+                hint_price = f"\n💵 <i>Prezzo attuale di mercato: <b>{analysis['current_price']:,.2f}</b></i>"
+        except Exception:
+            pass
+
+        await _prompt_portfolio_price(
+            query.message,
+            context,
+            f"🎯 <b>Modifica Take Profit per {name}</b> ({dir_badge})\n"
+            f"• Prezzo di Ingresso: <b>{entry_p:,.2f}</b>{hint_price}\n"
+            f"• Take Profit attuale: {tp_text}\n\n"
+            f"👉 <b>Scrivi qui sotto il nuovo valore di Take Profit</b> (es. <code>{current_tp or entry_p * 1.10:,.2f}</code>):\n"
+            f"<i>(I target di profitto verranno ricalcolati subito in base a questo valore)</i>"
         )
     elif data.startswith("port_delete_"):
         ticker = data.removeprefix("port_delete_")

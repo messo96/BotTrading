@@ -187,7 +187,8 @@ def format_help_message() -> str:
 Il bot monitora costantemente le oscillazioni di mercato (BUY e SELL) e aggiorna automaticamente il tuo **Portafoglio Posizioni Reali**.
 
 <b>Gestione Portafoglio Reale:</b>
-• <code>/portfolio</code> : Mostra le posizioni aperte; i pulsanti permettono di modificare il prezzo, archiviarle o eliminarle.
+• <code>/portfolio</code> : Mostra le posizioni aperte; pulsanti dedicati per modificare Prezzo di ingresso, Stop Loss e Take Profit, archiviare o eliminare ciascun asset.
+• <b>Modifica Rapida:</b> Usa i pulsanti inline <code>🛑 SL</code> e <code>🎯 TP</code> sotto ogni titolo nel portafoglio, oppure digita <code>/portfolio sl TICKER VALORE</code> e <code>/portfolio tp TICKER VALORE</code>.
 • Per aggiungere un asset: <code>/scan</code> → apri l'analisi → <b>Registra in Portafoglio</b> → BUY/SELL → prezzo di ingresso.
 • In alternativa: <code>/portfolio add TICKER BUY/SELL PREZZO [SL] [TP]</code>.
 • <code>/portfolio del TICKER</code> : Elimina una posizione dal portafoglio.
