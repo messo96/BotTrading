@@ -142,10 +142,8 @@ def format_portfolio_update(evaluations: List[Dict[str, Any]]) -> str:
 
 <i>Nessuna posizione aperta registrata nel portafoglio.</i>
 
-<b>Come aggiungere le tue operazioni reali:</b>
-• <code>/portfolio add NVDA SELL 170.5</code> (apre short a 170.5)
-• <code>/portfolio add XAUUSD BUY 4050</code> (apre long a 4050)
-• <code>/portfolio add TECH100 SELL 28400</code>
+<b>Per aggiungere un asset:</b> usa <code>/scan</code>, apri l'analisi del titolo e premi <b>Registra in Portafoglio</b>.
+Puoi anche continuare a usare <code>/portfolio add TICKER BUY/SELL PREZZO</code>.
 """
 
     items_text = []
@@ -177,7 +175,7 @@ def format_portfolio_update(evaluations: List[Dict[str, Any]]) -> str:
 
 {cards}
 
-💡 <i>Usa <code>/portfolio add TICKER BUY/SELL PREZZO</code> per registrare nuovi trade, o <code>/portfolio del TICKER</code> per chiuderli.</i>
+💡 <i>Usa i pulsanti sotto per modificare l'ingresso, archiviare o eliminare una posizione. Per aggiungerne una, apri un'analisi da /scan.</i>
 ⚠️ <i>Broker-Assistant consultivo: la responsabilità operativa finale è tua al 100%.</i>
 """
     return msg
@@ -189,9 +187,10 @@ def format_help_message() -> str:
 Il bot monitora costantemente le oscillazioni di mercato (BUY e SELL) e aggiorna automaticamente il tuo **Portafoglio Posizioni Reali**.
 
 <b>Gestione Portafoglio Reale:</b>
-• <code>/portfolio</code> : Mostra tutte le posizioni aperte con P&L e consiglio (Mantenere, Spostare Stop a Pareggio, Chiudere).
-• <code>/portfolio add TICKER BUY/SELL PREZZO [SL] [TP]</code> : Registra un'operazione aperta (es. <code>/portfolio add NVDA SELL 170.5</code>).
-• <code>/portfolio del TICKER</code> : Rimuove una posizione dal portafoglio (trade chiuso).
+• <code>/portfolio</code> : Mostra le posizioni aperte; i pulsanti permettono di modificare il prezzo, archiviarle o eliminarle.
+• Per aggiungere un asset: <code>/scan</code> → apri l'analisi → <b>Registra in Portafoglio</b> → BUY/SELL → prezzo di ingresso.
+• In alternativa: <code>/portfolio add TICKER BUY/SELL PREZZO [SL] [TP]</code>.
+• <code>/portfolio del TICKER</code> : Elimina una posizione dal portafoglio.
 • <code>/aggiornagruppo</code> : Invia subito il report del portafoglio nel gruppo Telegram.
 
 <b>Comandi di Scansione Mercati:</b>

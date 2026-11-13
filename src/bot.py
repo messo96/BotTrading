@@ -1,8 +1,10 @@
 import logging
 import datetime
+import math
+import time
 from typing import Optional, List
 import pytz
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ForceReply
 from telegram.constants import ParseMode, ChatAction
 from telegram.request import HTTPXRequest
 from telegram.error import NetworkError, TimedOut
@@ -10,6 +12,8 @@ from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     CallbackQueryHandler,
+    MessageHandler,
+    filters,
     ContextTypes,
     Application
 )
@@ -33,7 +37,10 @@ from src.watchlist import load_watchlist, add_to_watchlist, remove_from_watchlis
 from src.portfolio import (
     load_portfolio,
     add_position,
+    update_entry_price,
     remove_position,
+    archive_position,
+    load_archived_portfolio,
     clear_portfolio,
     evaluate_full_portfolio
 )
@@ -55,6 +62,8 @@ logger = logging.getLogger(__name__)
 
 # Fuso orario configurato
 local_tz = pytz.timezone(TIMEZONE)
+PORTFOLIO_INPUT_TTL_SECONDS = 10 * 60
+PORTFOLIO_HISTORY_PAGE_SIZE = 10
 
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
     """Tastiera interattiva per la dashboard principale."""
@@ -103,6 +112,94 @@ def get_report_keyboard(results: list) -> Optional[InlineKeyboardMarkup]:
         InlineKeyboardButton("🏠 Menu Principale", callback_data="menu_home")
     ])
     return InlineKeyboardMarkup(keyboard)
+
+def get_portfolio_management_keyboard(positions: list) -> InlineKeyboardMarkup:
+    """Crea i controlli per modificare, rimuovere o archiviare ogni posizione."""
+    keyboard = []
+    for pos in positions:
+        ticker = pos["ticker"]
+        keyboard.append([
+            InlineKeyboardButton("✏️ Ingresso", callback_data=f"port_edit_{ticker}"),
+            InlineKeyboardButton("📦 Archivia", callback_data=f"port_archive_{ticker}"),
+            InlineKeyboardButton("🗑 Elimina", callback_data=f"port_delete_{ticker}")
+        ])
+    keyboard.append([InlineKeyboardButton("📢 Pubblica nel Gruppo", callback_data="send_group_report")])
+    keyboard.append([
+        InlineKeyboardButton("🗂 Storico", callback_data="portfolio_history"),
+        InlineKeyboardButton("🏠 Menu Principale", callback_data="menu_home")
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
+def _update_pending_portfolio(
+    context: ContextTypes.DEFAULT_TYPE,
+    action: str,
+    ticker: str,
+    chat_id: int,
+    direction: Optional[str] = None
+) -> None:
+    pending = {
+        "action": action,
+        "ticker": ticker,
+        "chat_id": chat_id,
+        "created_at": time.time()
+    }
+    if direction:
+        pending["direction"] = direction
+    context.user_data["pending_portfolio"] = pending
+
+
+async def _prompt_portfolio_price(
+    message,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+    include_cancel: bool = True
+) -> None:
+    pending = context.user_data.get("pending_portfolio")
+    if not pending:
+        return
+    prompt = await message.reply_text(
+        text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=ForceReply(selective=True, input_field_placeholder="Prezzo di ingresso")
+    )
+    pending["prompt_message_id"] = prompt.message_id
+    if include_cancel:
+        await message.reply_text(
+            "Per annullare l'inserimento, premi qui sotto.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✖️ Annulla", callback_data="port_cancel_pending")]
+            ])
+        )
+
+
+def _portfolio_history_page(history: list, requested_page: int) -> tuple[str, InlineKeyboardMarkup]:
+    page_count = max(1, math.ceil(len(history) / PORTFOLIO_HISTORY_PAGE_SIZE))
+    page = min(max(requested_page, 0), page_count - 1)
+    if not history:
+        text = "🗂 <b>Storico portafoglio</b>\n\nNon ci sono ancora posizioni archiviate."
+    else:
+        start = max(0, len(history) - (page + 1) * PORTFOLIO_HISTORY_PAGE_SIZE)
+        end = len(history) - page * PORTFOLIO_HISTORY_PAGE_SIZE
+        rows = []
+        for position in history[start:end][::-1]:
+            direction = "BUY" if position.get("direction") == "BUY" else "SELL"
+            rows.append(
+                f"• <b>{position.get('ticker', 'N/A')}</b> · {direction} · "
+                f"Ingresso {float(position.get('entry_price', 0)):,.2f} · "
+                f"archiviato {position.get('archived_at', 'N/A')}"
+            )
+        text = f"🗂 <b>Storico portafoglio</b> · {page + 1}/{page_count}\n\n" + "\n".join(rows)
+
+    keyboard = []
+    navigation = []
+    if page > 0:
+        navigation.append(InlineKeyboardButton("⬅️ Più recenti", callback_data=f"portfolio_history_page_{page - 1}"))
+    if page < page_count - 1:
+        navigation.append(InlineKeyboardButton("Più vecchie ➡️", callback_data=f"portfolio_history_page_{page + 1}"))
+    if navigation:
+        keyboard.append(navigation)
+    keyboard.append([InlineKeyboardButton("💼 Torna al portafoglio", callback_data="menu_portfolio")])
+    return text, InlineKeyboardMarkup(keyboard)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Messaggio di benvenuto al comando /start con tastiera interattiva."""
@@ -304,14 +401,12 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     chat_id = update.effective_chat.id
 
     if not args:
-        status_msg = await update.message.reply_text("💼 <i>Analizzo le posizioni del tuo portafoglio in tempo reale...</i>", parse_mode=ParseMode.HTML)
+        source_message = update.message or (update.callback_query.message if update.callback_query else None)
+        status_msg = await source_message.reply_text("💼 <i>Analizzo le posizioni del tuo portafoglio in tempo reale...</i>", parse_mode=ParseMode.HTML)
         try:
             evaluations = evaluate_full_portfolio()
             report = format_portfolio_update(evaluations)
-            kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("📢 Pubblica nel Gruppo", callback_data="send_group_report")],
-                [InlineKeyboardButton("🏠 Menu Principale", callback_data="menu_home")]
-            ])
+            kb = get_portfolio_management_keyboard(load_portfolio())
             await status_msg.edit_text(report, parse_mode=ParseMode.HTML, reply_markup=kb)
         except Exception as e:
             logger.error(f"Errore portafoglio: {e}")
@@ -338,8 +433,10 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         direction = args[2].upper()
         try:
             entry_price = float(args[3].replace(",", "."))
+            if not math.isfinite(entry_price) or entry_price <= 0:
+                raise ValueError
         except ValueError:
-            await update.message.reply_text("❌ Prezzo di ingresso non valido. Inserisci un numero (es. <code>170.50</code>).", parse_mode=ParseMode.HTML)
+            await update.message.reply_text("❌ Prezzo di ingresso non valido. Inserisci un numero maggiore di zero (es. <code>170.50</code>).", parse_mode=ParseMode.HTML)
             return
 
         sl = None
@@ -387,6 +484,66 @@ Il bot ora monitorerà costantemente questo trade e invierà gli aggiornamenti s
         await update.message.reply_text("🗑 Portafoglio azzerato completamente.", parse_mode=ParseMode.HTML)
     else:
         await update.message.reply_text("⚠️ Azione non valida. Usa <code>/portfolio</code>, <code>/portfolio add</code> o <code>/portfolio del</code>.", parse_mode=ParseMode.HTML)
+
+async def portfolio_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Completa l'aggiunta o la modifica dopo aver ricevuto il prezzo digitato."""
+    pending = context.user_data.get("pending_portfolio")
+    if not pending or not update.message or not update.effective_chat or not update.message.text:
+        return
+
+    if update.effective_chat.id != pending.get("chat_id"):
+        return
+
+    is_prompt_reply = (
+        update.message.reply_to_message is not None
+        and update.message.reply_to_message.message_id == pending.get("prompt_message_id")
+    )
+    if time.time() - pending.get("created_at", 0) > PORTFOLIO_INPUT_TTL_SECONDS:
+        context.user_data.pop("pending_portfolio", None)
+        if is_prompt_reply:
+            await update.message.reply_text("⌛ Operazione scaduta. Avviane una nuova dal portafoglio.")
+        return
+    if not is_prompt_reply:
+        return
+
+    text = update.message.text.strip().replace(",", ".")
+    try:
+        entry_price = float(text)
+        if not math.isfinite(entry_price) or entry_price <= 0:
+            raise ValueError
+    except ValueError:
+        await _prompt_portfolio_price(
+            update.message,
+            context,
+            "❌ Prezzo non valido. Rispondi a questo messaggio con un numero maggiore di zero "
+            "(es. <code>170.50</code>).",
+            include_cancel=False
+        )
+        return
+
+    ticker = pending["ticker"]
+    action = pending["action"]
+    if action == "add":
+        position = add_position(ticker, pending["direction"], entry_price)
+        direction_label = "BUY" if position["direction"] == "BUY" else "SELL"
+        await update.message.reply_text(
+            f"✅ <b>{position['ticker']}</b> aggiunto al portafoglio: <b>{direction_label}</b> a <b>{entry_price:,.2f}</b>.",
+            parse_mode=ParseMode.HTML,
+            reply_markup=get_portfolio_management_keyboard(load_portfolio())
+        )
+    elif update_entry_price(ticker, entry_price):
+        await update.message.reply_text(
+            f"✅ Prezzo di ingresso di <b>{ticker}</b> aggiornato a <b>{entry_price:,.2f}</b>.",
+            parse_mode=ParseMode.HTML
+        )
+    else:
+        await update.message.reply_text(f"⚠️ La posizione <b>{ticker}</b> non è più nel portafoglio.", parse_mode=ParseMode.HTML)
+    context.user_data.pop("pending_portfolio", None)
+
+
+async def clear_pending_portfolio_on_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Un nuovo comando interrompe un eventuale inserimento del prezzo rimasto in sospeso."""
+    context.user_data.pop("pending_portfolio", None)
 
 async def aggiornagruppo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Pubblica immediatamente il report del portafoglio nel gruppo Telegram."""
@@ -525,6 +682,19 @@ async def callback_button_handler(update: Update, context: ContextTypes.DEFAULT_
 
     data = query.data
     chat_id = query.message.chat_id if query.message else update.effective_chat.id
+    pending = context.user_data.get("pending_portfolio")
+    pending_flow_callback = (
+        data == "port_cancel_pending"
+        or data.startswith(("port_buy_", "port_sell_", "port_edit_"))
+    )
+    if pending and pending.get("chat_id") != chat_id:
+        if pending_flow_callback:
+            await query.message.reply_text(
+                "Hai già un'operazione in corso in un'altra chat. Completala o annullala lì."
+            )
+            return
+    elif pending and not pending_flow_callback:
+        context.user_data.pop("pending_portfolio", None)
 
     if data == "menu_home":
         await query.message.reply_text(
@@ -551,11 +721,61 @@ async def callback_button_handler(update: Update, context: ContextTypes.DEFAULT_
     elif data.startswith("port_add_prompt_"):
         ticker = data.replace("port_add_prompt_", "")
         await query.message.reply_text(
-            f"ℹ️ Per registrare <b>{ticker}</b> nel portafoglio invia:\n"
-            f"<code>/portfolio add {ticker} BUY PREZZO</code> oppure\n"
-            f"<code>/portfolio add {ticker} SELL PREZZO</code>",
-            parse_mode=ParseMode.HTML
+            f"📥 <b>Registra {ticker} nel portafoglio</b>\nScegli il tipo di operazione:",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("🟢 BUY", callback_data=f"port_buy_{ticker}"),
+                    InlineKeyboardButton("🔴 SELL", callback_data=f"port_sell_{ticker}")
+                ],
+                [InlineKeyboardButton("✖️ Annulla", callback_data="port_cancel_pending")]
+            ])
         )
+    elif data.startswith("port_buy_") or data.startswith("port_sell_"):
+        direction, ticker = data.split("_", 2)[1].upper(), data.split("_", 2)[2]
+        _update_pending_portfolio(context, "add", ticker, chat_id, direction)
+        await _prompt_portfolio_price(
+            query.message,
+            context,
+            f"💰 Inserisci il prezzo di ingresso per <b>{ticker}</b> ({direction}).\n"
+            "Rispondi a questo messaggio con il prezzo. La posizione verrà aggiunta automaticamente."
+        )
+    elif data.startswith("port_edit_"):
+        ticker = data.removeprefix("port_edit_")
+        if not any(position.get("ticker") == ticker for position in load_portfolio()):
+            await query.message.reply_text(f"⚠️ <b>{ticker}</b> non è più nel portafoglio.", parse_mode=ParseMode.HTML)
+            return
+        _update_pending_portfolio(context, "edit", ticker, chat_id)
+        await _prompt_portfolio_price(
+            query.message,
+            context,
+            f"✏️ Inserisci il nuovo prezzo di ingresso per <b>{ticker}</b>. Rispondi a questo messaggio."
+        )
+    elif data.startswith("port_delete_"):
+        ticker = data.removeprefix("port_delete_")
+        if remove_position(ticker):
+            await query.message.reply_text(f"🗑 <b>{ticker}</b> eliminato dal portafoglio.", parse_mode=ParseMode.HTML)
+            await portfolio_command(update, context)
+        else:
+            await query.message.reply_text(f"⚠️ <b>{ticker}</b> non è più nel portafoglio.", parse_mode=ParseMode.HTML)
+    elif data.startswith("port_archive_"):
+        ticker = data.removeprefix("port_archive_")
+        if archive_position(ticker):
+            await query.message.reply_text(f"📦 <b>{ticker}</b> archiviato. Lo trovi nello storico del portafoglio.", parse_mode=ParseMode.HTML)
+            await portfolio_command(update, context)
+        else:
+            await query.message.reply_text(f"⚠️ <b>{ticker}</b> non è più nel portafoglio.", parse_mode=ParseMode.HTML)
+    elif data == "portfolio_history" or data.startswith("portfolio_history_page_"):
+        history = load_archived_portfolio()
+        try:
+            page = int(data.removeprefix("portfolio_history_page_")) if data != "portfolio_history" else 0
+        except ValueError:
+            page = 0
+        text, keyboard = _portfolio_history_page(history, page)
+        await query.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    elif data == "port_cancel_pending":
+        context.user_data.pop("pending_portfolio", None)
+        await query.message.reply_text("Operazione annullata.", parse_mode=ParseMode.HTML)
     elif data == "info_orari":
         await orari_command(update, context)
 
@@ -673,6 +893,10 @@ def create_bot_application() -> Application:
     app.add_handler(CommandHandler("portafoglio", portfolio_command))
     app.add_handler(CommandHandler("aggiornagruppo", aggiornagruppo_command))
     app.add_handler(CommandHandler("orari", orari_command))
+
+    # Riceve i prezzi digitati dopo aver scelto BUY/SELL o aver premuto Modifica.
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, portfolio_input_handler))
+    app.add_handler(MessageHandler(filters.COMMAND, clear_pending_portfolio_on_command), group=1)
 
     # Gestore Callback Query per bottoni inline
     app.add_handler(CallbackQueryHandler(callback_button_handler))

@@ -1,29 +1,33 @@
 import unittest
-import os
-import json
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 from src.portfolio import (
     load_portfolio,
-    save_portfolio,
     add_position,
+    update_entry_price,
     remove_position,
-    clear_portfolio
+    clear_portfolio,
+    archive_position,
+    load_archived_portfolio
 )
 
 class TestPortfolio(unittest.TestCase):
 
     def setUp(self):
-        self.temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".json")
-        self.temp_file.close()
-        self.patcher = patch("src.portfolio.PORTFOLIO_FILE", Path(self.temp_file.name))
-        self.patcher.start()
+        self.portfolio_file = Path(__file__).parent / ".portfolio-test.json"
+        self.archive_file = Path(__file__).parent / ".portfolio-archive-test.json"
+        self.portfolio_file.unlink(missing_ok=True)
+        self.archive_file.unlink(missing_ok=True)
+        self.portfolio_patcher = patch("src.portfolio.PORTFOLIO_FILE", self.portfolio_file)
+        self.archive_patcher = patch("src.portfolio.ARCHIVED_PORTFOLIO_FILE", self.archive_file)
+        self.portfolio_patcher.start()
+        self.archive_patcher.start()
 
     def tearDown(self):
-        self.patcher.stop()
-        if os.path.exists(self.temp_file.name):
-            os.remove(self.temp_file.name)
+        self.portfolio_patcher.stop()
+        self.archive_patcher.stop()
+        self.portfolio_file.unlink(missing_ok=True)
+        self.archive_file.unlink(missing_ok=True)
 
     def test_add_and_load_position(self):
         pos = add_position("NVDA", "BUY", 120.0, stop_loss=110.0, take_profit=145.0)
@@ -51,6 +55,30 @@ class TestPortfolio(unittest.TestCase):
         add_position("AAPL", "BUY", 180.0)
         clear_portfolio()
         self.assertEqual(len(load_portfolio()), 0)
+
+    def test_update_entry_price(self):
+        add_position("AAPL", "BUY", 180.0)
+
+        self.assertTrue(update_entry_price("AAPL", 182.5))
+        self.assertEqual(load_portfolio()[0]["entry_price"], 182.5)
+        self.assertFalse(update_entry_price("TSLA", 200.0))
+
+    def test_archive_position_preserves_history(self):
+        add_position("AAPL", "SELL", 180.0)
+
+        self.assertTrue(archive_position("AAPL"))
+        self.assertEqual(load_portfolio(), [])
+        archived = load_archived_portfolio()
+        self.assertEqual(len(archived), 1)
+        self.assertEqual(archived[0]["ticker"], "AAPL")
+        self.assertEqual(archived[0]["direction"], "SELL")
+        self.assertEqual(archived[0]["entry_price"], 180.0)
+        self.assertIn("archived_at", archived[0])
+        self.assertFalse(archive_position("AAPL"))
+
+    def test_entry_price_must_be_positive(self):
+        with self.assertRaises(ValueError):
+            add_position("AAPL", "BUY", 0)
 
 if __name__ == "__main__":
     unittest.main()
