@@ -244,6 +244,24 @@ class TestPortfolioHandlers(unittest.IsolatedAsyncioTestCase):
         previous_button = older_message.reply_text.await_args.kwargs["reply_markup"].inline_keyboard[0][0]
         self.assertEqual(previous_button.callback_data, "portfolio_history_page_0")
 
+    async def test_private_chat_accepts_direct_price_input_without_reply(self):
+        await self.begin_price_flow("port_buy_NVDA")
+        direct_update, _ = self.price_update("145.50", reply_to_id=None)
+        direct_update.effective_chat.type = "private"
+        self.mock_add_position.return_value = {"ticker": "NVDA", "direction": "BUY", "entry_price": 145.50}
+
+        await bot.portfolio_input_handler(direct_update, self.context)
+
+        self.mock_add_position.assert_called_once_with("NVDA", "BUY", 145.50)
+        self.assertNotIn("pending_portfolio", self.context.user_data)
+
+    def test_portfolio_management_keyboard_includes_asset_names(self):
+        positions = [{"ticker": "NVDA", "raw_ticker": "NVDA"}, {"ticker": "GC=F", "raw_ticker": "XAUUSD"}]
+        keyboard = bot.get_portfolio_management_keyboard(positions)
+        button_texts = [btn.text for row in keyboard.inline_keyboard for btn in row]
+        self.assertTrue(any("NVDA" in text for text in button_texts))
+        self.assertTrue(any("XAU" in text or "Oro" in text for text in button_texts))
+
 
 if __name__ == "__main__":
     unittest.main()

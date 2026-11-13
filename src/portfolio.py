@@ -125,6 +125,23 @@ def archive_position(raw_ticker: str) -> bool:
 
     positions.remove(archived)
     archived["archived_at"] = datetime.now().strftime("%d/%m/%Y %H:%M")
+
+    # Prova a determinare il prezzo di uscita attuale e calcolare il P&L realizzato
+    try:
+        df, analysis = fetch_ticker_data_and_analysis(ticker)
+        if analysis and "current_price" in analysis:
+            exit_price = float(analysis["current_price"])
+            entry_price = float(archived.get("entry_price", exit_price))
+            direction = archived.get("direction", "BUY")
+            if direction == "BUY":
+                final_pnl = ((exit_price - entry_price) / entry_price) * 100
+            else:
+                final_pnl = ((entry_price - exit_price) / entry_price) * 100
+            archived["exit_price"] = round(exit_price, 4)
+            archived["final_pnl_pct"] = round(final_pnl, 2)
+    except Exception as e:
+        logger.warning(f"Impossibile calcolare exit_price per archiviazione {ticker}: {e}")
+
     history = load_archived_portfolio()
     history.append(archived)
     save_archived_portfolio(history)
@@ -165,8 +182,22 @@ def evaluate_single_position(pos: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     else:  # SELL (Short)
         pnl_pct = ((entry_price - current_price) / entry_price) * 100
 
-    sl = user_sl if user_sl else analysis["stop_loss"]
-    tp = user_tp if user_tp else analysis["take_profit_2"]
+    # Livelli di Stop Loss e Take Profit coerenti con la direzione del trade
+    if user_sl:
+        sl = float(user_sl)
+    else:
+        if direction == "BUY":
+            sl = analysis["stop_loss"] if analysis["action"] == "BUY" else round(entry_price * 0.95, 4)
+        else:
+            sl = analysis["stop_loss"] if analysis["action"] == "SELL" else round(entry_price * 1.05, 4)
+
+    if user_tp:
+        tp = float(user_tp)
+    else:
+        if direction == "BUY":
+            tp = analysis["take_profit_2"] if analysis["action"] == "BUY" else round(entry_price * 1.10, 4)
+        else:
+            tp = analysis["take_profit_2"] if analysis["action"] == "SELL" else round(entry_price * 0.90, 4)
 
     # Regole di Valutazione e Consiglio
     advice_code = "HOLD"
