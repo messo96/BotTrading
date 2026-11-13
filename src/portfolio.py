@@ -1,9 +1,10 @@
 import json
 import logging
+import math
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-from src.config import PORTFOLIO_FILE, STRATEGY_SETTINGS
+from src.config import ARCHIVED_PORTFOLIO_FILE, PORTFOLIO_FILE, STRATEGY_SETTINGS
 from src.screener import resolve_ticker, fetch_ticker_data_and_analysis
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,24 @@ def save_portfolio(positions: List[Dict[str, Any]]) -> None:
     with open(PORTFOLIO_FILE, "w", encoding="utf-8") as f:
         json.dump(positions, f, indent=2)
 
+def load_archived_portfolio() -> List[Dict[str, Any]]:
+    """Carica lo storico delle posizioni archiviate."""
+    if not ARCHIVED_PORTFOLIO_FILE.exists() or ARCHIVED_PORTFOLIO_FILE.stat().st_size == 0:
+        return []
+    try:
+        with open(ARCHIVED_PORTFOLIO_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, list) else []
+    except Exception as e:
+        logger.error(f"Errore durante il caricamento dello storico portafoglio: {e}")
+        return []
+
+def save_archived_portfolio(positions: List[Dict[str, Any]]) -> None:
+    """Salva lo storico delle posizioni archiviate su file JSON."""
+    ARCHIVED_PORTFOLIO_FILE.parent.mkdir(exist_ok=True, parents=True)
+    with open(ARCHIVED_PORTFOLIO_FILE, "w", encoding="utf-8") as f:
+        json.dump(positions, f, indent=2)
+
 def add_position(
     raw_ticker: str,
     direction: str,
@@ -45,6 +64,10 @@ def add_position(
     elif direction in ["SHORT"]:
         direction = "SELL"
 
+    entry_price = float(entry_price)
+    if not math.isfinite(entry_price) or entry_price <= 0:
+        raise ValueError("Il prezzo di ingresso deve essere un numero maggiore di zero.")
+
     positions = load_portfolio()
     # Rimuove eventuale posizione preesistente sullo stesso ticker per aggiornarla
     positions = [p for p in positions if p.get("ticker") != ticker]
@@ -53,7 +76,7 @@ def add_position(
         "ticker": ticker,
         "raw_ticker": raw_ticker.upper().strip(),
         "direction": direction,
-        "entry_price": float(entry_price),
+        "entry_price": entry_price,
         "stop_loss": float(stop_loss) if stop_loss else None,
         "take_profit": float(take_profit) if take_profit else None,
         "date_added": datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -61,6 +84,21 @@ def add_position(
     positions.append(new_pos)
     save_portfolio(positions)
     return new_pos
+
+def update_entry_price(raw_ticker: str, entry_price: float) -> bool:
+    """Aggiorna il prezzo di ingresso di una posizione aperta."""
+    price = float(entry_price)
+    if not math.isfinite(price) or price <= 0:
+        raise ValueError("Il prezzo di ingresso deve essere maggiore di zero.")
+
+    ticker = resolve_ticker(raw_ticker)
+    positions = load_portfolio()
+    for position in positions:
+        if position.get("ticker") == ticker or position.get("raw_ticker") == raw_ticker.upper().strip():
+            position["entry_price"] = price
+            save_portfolio(positions)
+            return True
+    return False
 
 def remove_position(raw_ticker: str) -> bool:
     """Rimuove/chiude una posizione dal portafoglio."""
@@ -72,6 +110,26 @@ def remove_position(raw_ticker: str) -> bool:
         save_portfolio(positions)
         return True
     return False
+
+def archive_position(raw_ticker: str) -> bool:
+    """Sposta una posizione aperta nello storico, conservandone i dati."""
+    ticker = resolve_ticker(raw_ticker)
+    positions = load_portfolio()
+    archived = next(
+        (position for position in positions
+         if position.get("ticker") == ticker or position.get("raw_ticker") == raw_ticker.upper().strip()),
+        None
+    )
+    if archived is None:
+        return False
+
+    positions.remove(archived)
+    archived["archived_at"] = datetime.now().strftime("%d/%m/%Y %H:%M")
+    history = load_archived_portfolio()
+    history.append(archived)
+    save_archived_portfolio(history)
+    save_portfolio(positions)
+    return True
 
 def clear_portfolio() -> None:
     """Svuota tutte le posizioni del portafoglio."""

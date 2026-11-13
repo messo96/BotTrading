@@ -6,7 +6,7 @@ __pycache__/
 .env
 data/watchlist.json
 data/portfolio.json
+data/portfolio_archive.json
 bot.log
 bot.pid
 .DS_Store
-

@@ -22,6 +22,7 @@ DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 WATCHLIST_FILE = DATA_DIR / "watchlist.json"
 PORTFOLIO_FILE = DATA_DIR / "portfolio.json"
+ARCHIVED_PORTFOLIO_FILE = DATA_DIR / "portfolio_archive.json"
 
 # ==============================================================================
 # ALIAS TICKER (Mappatura nomi comuni -> Simboli Yahoo Finance ufficiali)
